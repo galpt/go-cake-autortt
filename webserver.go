@@ -294,11 +294,11 @@ func (ws *WebServer) getQdiscStats() []QdiscStats {
 				strings.Contains(line, "bytes") || strings.Contains(line, "pkt") ||
 				strings.Contains(line, "dropped") || strings.Contains(line, "overlimits") {
 				currentStats += line + "\n"
-			} else if strings.Contains(line, "target") && strings.Contains(line, "ms") {
-				// Extract RTT/target information from CAKE output
+			} else if strings.Contains(line, "interval") && strings.Contains(line, "ms") {
+				// Extract RTT/interval information from CAKE output
 				rttInfo = ws.extractRTTFromLine(line)
 				currentStats += line + "\n"
-			} else if strings.Contains(line, "thresh") || strings.Contains(line, "interval") ||
+			} else if strings.Contains(line, "thresh") || strings.Contains(line, "target") ||
 				strings.Contains(line, "pkts") || strings.Contains(line, "flows") {
 				// Include other CAKE-specific statistics
 				currentStats += line + "\n"
@@ -321,11 +321,11 @@ func (ws *WebServer) getQdiscStats() []QdiscStats {
 
 // extractRTTFromLine extracts RTT information from a tc output line
 func (ws *WebServer) extractRTTFromLine(line string) string {
-	// Look for target time which indicates the RTT setting in CAKE
-	if strings.Contains(line, "target") && strings.Contains(line, "ms") {
+	// Look for interval time which indicates the RTT setting in CAKE
+	if strings.Contains(line, "interval") && strings.Contains(line, "ms") {
 		parts := strings.Fields(line)
 		for i, part := range parts {
-			if part == "target" && i+1 < len(parts) {
+			if part == "interval" && i+1 < len(parts) {
 				return parts[i+1]
 			}
 		}
