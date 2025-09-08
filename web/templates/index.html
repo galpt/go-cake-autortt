@@ -101,7 +101,7 @@
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            grid-template-columns: repeat(2, 1fr);
             gap: 1.5rem;
             margin-bottom: 20px;
         }
@@ -161,6 +161,10 @@
             color: var(--accent-primary);
             font-weight: 600;
             font-size: 1.1rem;
+        }
+
+        .metric-value#lastUpdate {
+            font-size: 0.875rem;
         }
 
         .qdisc-stats {
@@ -400,24 +404,31 @@
         /* Responsive Design */
         @media (max-width: 1024px) {
             .grid {
-                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                grid-template-columns: repeat(2, 1fr);
                 gap: 1rem;
             }
-            
+
             .qdisc-stats-grid {
                 grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             }
         }
-        
+
+        @media (max-width: 600px) {
+            .grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+        }
+
         @media (max-width: 768px) {
             body {
                 padding: 1rem;
             }
-            
+
             .container {
                 max-width: 100%;
             }
-            
+
             .grid {
                 grid-template-columns: 1fr;
                 gap: 1rem;
@@ -433,28 +444,28 @@
                 flex-direction: column;
                 gap: 0.5rem;
             }
-            
+
             .card {
                 padding: 1rem;
             }
-            
+
             .qdisc-stats-grid {
                 grid-template-columns: 1fr;
             }
-            
+
             .log-entry {
                 flex-direction: column;
                 align-items: flex-start;
                 gap: 0.5rem;
                 padding: 1rem 0;
             }
-            
+
             .log-timestamp,
             .log-level {
                 margin-right: 0;
                 min-width: auto;
             }
-            
+
             .refresh-indicator,
             .connection-status {
                 position: relative;
@@ -465,26 +476,26 @@
                 align-self: center;
             }
         }
-        
+
         @media (max-width: 480px) {
             .header h1 {
                 font-size: 1.75rem;
             }
-            
+
             .subtitle {
                 font-size: 1rem;
             }
-            
+
             .metric {
                 flex-direction: column;
                 align-items: flex-start;
                 gap: 0.25rem;
             }
-            
+
             .qdisc-interface {
                 font-size: 1rem;
             }
-            
+
             .qdisc-details {
                 font-size: 0.75rem;
                 padding: 0.75rem;
@@ -662,10 +673,10 @@
             stats.forEach(stat => {
                 const item = document.createElement('div');
                 item.className = 'qdisc-item';
-                
+
                 // Parse qdisc details for better display
                 const parsedStats = parseQdiscOutput(stat.stats || '');
-                
+
                 item.innerHTML = `
                     <div class="qdisc-interface">${stat.interface} ${stat.rtt ? `(RTT: ${stat.rtt})` : ''}</div>
                     <div class="qdisc-details">${stat.qdisc || 'N/A'}\n${stat.stats || 'No statistics available'}</div>
@@ -677,14 +688,14 @@
 
         function parseQdiscOutput(statsText) {
             if (!statsText || statsText.trim() === '') return '';
-            
+
             const lines = statsText.split('\n');
             const metrics = [];
-            
+
             // Parse key metrics from tc output
             lines.forEach(line => {
                 const trimmed = line.trim();
-                
+
                 // Parse sent/received data
                 if (trimmed.includes('Sent') && trimmed.includes('bytes')) {
                     const sentMatch = trimmed.match(/Sent (\S+) bytes (\S+) pkt/);
@@ -693,7 +704,7 @@
                         metrics.push({ label: 'Packets Sent', value: formatNumber(sentMatch[2]) });
                     }
                 }
-                
+
                 // Parse dropped packets
                 if (trimmed.includes('dropped')) {
                     const droppedMatch = trimmed.match(/dropped (\d+)/);
@@ -701,7 +712,7 @@
                         metrics.push({ label: 'Dropped', value: formatNumber(droppedMatch[1]) });
                     }
                 }
-                
+
                 // Parse bandwidth
                 if (trimmed.includes('bandwidth')) {
                     const bwMatch = trimmed.match(/bandwidth (\S+)/);
@@ -709,7 +720,7 @@
                         metrics.push({ label: 'Bandwidth', value: bwMatch[1] });
                     }
                 }
-                
+
                 // Parse memory usage
                 if (trimmed.includes('memory used:')) {
                     const memMatch = trimmed.match(/memory used: (\S+) of (\S+)/);
@@ -718,7 +729,7 @@
                     }
                 }
             });
-            
+
             // Generate HTML for metrics
             return metrics.map(metric => `
                 <div class="qdisc-stat-item">
@@ -727,23 +738,23 @@
                 </div>
             `).join('');
         }
-        
+
         function formatBytes(bytes) {
             const num = parseInt(bytes);
             if (isNaN(num)) return bytes;
-            
+
             const units = ['B', 'KB', 'MB', 'GB', 'TB'];
             let size = num;
             let unitIndex = 0;
-            
+
             while (size >= 1024 && unitIndex < units.length - 1) {
                 size /= 1024;
                 unitIndex++;
             }
-            
+
             return `${size.toFixed(1)} ${units[unitIndex]}`;
         }
-        
+
         function formatNumber(num) {
             const number = parseInt(num);
             if (isNaN(number)) return num;
