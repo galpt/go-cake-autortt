@@ -1,4 +1,4 @@
-name: Build Multi-Architecture Binaries and Push to Releases
+name: Build Multi-Architecture Binaries
 
 on:
   push:
@@ -157,6 +157,8 @@ jobs:
   release:
     needs: [auto-tag, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     if: >
       always() &&
       (needs.auto-tag.result == 'success' || startsWith(github.ref, 'refs/tags/v')) &&
