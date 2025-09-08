@@ -1,7 +1,9 @@
 package main
 
 import (
+	"embed"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os/exec"
@@ -12,6 +14,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
+
+//go:embed web/templates/*
+var templateFS embed.FS
 
 // WebServer handles the HTTP server for monitoring
 type WebServer struct {
@@ -73,9 +78,9 @@ func (ws *WebServer) Start() error {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	// Serve static files
-	r.Static("/static", "./web/static")
-	r.LoadHTMLGlob("web/templates/*")
+	// Load embedded templates
+	tmpl := template.Must(template.New("").ParseFS(templateFS, "web/templates/*"))
+	r.SetHTMLTemplate(tmpl)
 
 	// Main monitoring page
 	r.GET("/cake-autortt", ws.handleIndex)

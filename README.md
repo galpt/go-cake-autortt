@@ -335,6 +335,54 @@ sudo cat /proc/net/nf_conntrack | head -10
 ip link show
 ```
 
+### Manual Workaround for Service Issues
+
+**If the service fails to start automatically after installation**, you can run the program manually in the background:
+
+**For OpenWrt:**
+```bash
+# 1. Clone the repository
+git clone https://github.com/galpt/go-cake-autortt.git
+cd go-cake-autortt
+
+# 2. Make scripts executable
+chmod +x install.sh uninstall.sh
+
+# 3. Run the installation script
+./install.sh
+
+# 4. If service doesn't start automatically, run manually in background
+/usr/bin/cake-autortt &
+
+# 5. To stop the background process
+killall cake-autortt
+
+# 6. To uninstall completely
+./uninstall.sh
+```
+
+**For other Linux distributions:**
+```bash
+# 1. Clone the repository
+git clone https://github.com/galpt/go-cake-autortt.git
+cd go-cake-autortt
+
+# 2. Make scripts executable
+chmod +x install.sh uninstall.sh
+
+# 3. Run the installation script
+sudo ./install.sh
+
+# 4. If service doesn't start automatically, run manually in background
+sudo /usr/bin/cake-autortt &
+
+# 5. To stop the background process
+sudo killall cake-autortt
+
+# 6. To uninstall completely
+sudo ./uninstall.sh
+```
+
 ### Reinstallation
 
 If you encounter issues, you can safely reinstall:

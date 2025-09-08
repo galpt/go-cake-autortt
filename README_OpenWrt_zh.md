@@ -358,6 +358,33 @@ head -10 /proc/net/nf_conntrack
 /usr/bin/cake-autortt --help
 ```
 
+### 服务问题的手动解决方案
+
+**如果安装后服务无法自动启动**，您可以手动在后台运行程序：
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/galpt/go-cake-autortt.git
+cd go-cake-autortt
+
+# 2. 使脚本可执行
+chmod +x install.sh uninstall.sh
+
+# 3. 运行安装脚本
+./install.sh
+
+# 4. 如果服务无法自动启动，手动在后台运行
+/usr/bin/cake-autortt &
+
+# 5. 停止后台进程
+killall cake-autortt
+
+# 6. 完全卸载
+./uninstall.sh
+```
+
+**注意**：`&` 符号使进程在后台运行，允许您继续使用终端。
+
 ## 🔄 配置更改
 
 修改 `/etc/cake-autortt.yaml` 后：

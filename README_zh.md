@@ -338,6 +338,54 @@ sudo cat /proc/net/nf_conntrack | head -10
 sudo cake-autortt --debug | grep "TCP probe"
 ```
 
+### 服务问题的手动解决方案
+
+**如果安装后服务无法自动启动**，您可以手动在后台运行程序：
+
+**对于OpenWrt：**
+```bash
+# 1. 克隆仓库
+git clone https://github.com/galpt/go-cake-autortt.git
+cd go-cake-autortt
+
+# 2. 使脚本可执行
+chmod +x install.sh uninstall.sh
+
+# 3. 运行安装脚本
+./install.sh
+
+# 4. 如果服务无法自动启动，手动在后台运行
+/usr/bin/cake-autortt &
+
+# 5. 停止后台进程
+killall cake-autortt
+
+# 6. 完全卸载
+./uninstall.sh
+```
+
+**对于其他Linux发行版：**
+```bash
+# 1. 克隆仓库
+git clone https://github.com/galpt/go-cake-autortt.git
+cd go-cake-autortt
+
+# 2. 使脚本可执行
+chmod +x install.sh uninstall.sh
+
+# 3. 运行安装脚本
+sudo ./install.sh
+
+# 4. 如果服务无法自动启动，手动在后台运行
+sudo /usr/bin/cake-autortt &
+
+# 5. 停止后台进程
+sudo killall cake-autortt
+
+# 6. 完全卸载
+sudo ./uninstall.sh
+```
+
 ## 🏗️ 从源码构建
 
 ### 前置要求
