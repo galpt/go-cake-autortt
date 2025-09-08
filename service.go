@@ -16,15 +16,16 @@ import (
 
 // CakeAutoRTTService represents the main service
 type CakeAutoRTTService struct {
-	config     *Config
-	running    bool
-	mutex      sync.RWMutex
-	lastRTT    map[string]int
-	lastUpdate time.Time
-	ctx        context.Context
-	cancel     context.CancelFunc
-	recentLogs []LogEntry
-	logMutex   sync.RWMutex
+	config      *Config
+	running     bool
+	mutex       sync.RWMutex
+	lastRTT     map[string]int
+	activeHosts int
+	lastUpdate  time.Time
+	ctx         context.Context
+	cancel      context.CancelFunc
+	recentLogs  []LogEntry
+	logMutex    sync.RWMutex
 }
 
 // LogEntry represents a log entry
@@ -118,12 +119,13 @@ func (s *CakeAutoRTTService) performRTTMeasurementCycle() {
 
 	// Measure RTT if we have enough hosts
 	if len(hosts) >= s.config.MinHosts {
-		measuredRTT, err := s.measureRTTTCP(hosts)
+		measuredRTT, activeCount, err := s.measureRTTTCP(hosts)
 		if err != nil {
 			s.AddLog("DEBUG", fmt.Sprintf("RTT measurement failed: %v, using default RTT: %.2fms", err, rttToUse))
 			// Update RTT tracking with default
 			s.mutex.Lock()
 			s.lastRTT["default"] = int(rttToUse)
+			s.activeHosts = activeCount // Use the count from failed measurement (partial success)
 			s.mutex.Unlock()
 		} else {
 			rttToUse = measuredRTT
@@ -131,6 +133,7 @@ func (s *CakeAutoRTTService) performRTTMeasurementCycle() {
 			// Update RTT tracking with measured value
 			s.mutex.Lock()
 			s.lastRTT["measured"] = int(rttToUse)
+			s.activeHosts = activeCount // Use the actual count from successful measurement
 			s.mutex.Unlock()
 		}
 	} else {
@@ -139,6 +142,7 @@ func (s *CakeAutoRTTService) performRTTMeasurementCycle() {
 		// Update RTT tracking with default
 		s.mutex.Lock()
 		s.lastRTT["default"] = int(rttToUse)
+		s.activeHosts = len(hosts) // Show discovered hosts even if not enough for measurement
 		s.mutex.Unlock()
 	}
 
@@ -246,9 +250,10 @@ func (s *CakeAutoRTTService) isLANAddress(ipStr string) bool {
 }
 
 // measureRTTTCP measures RTT using TCP connections to multiple hosts in parallel
-func (s *CakeAutoRTTService) measureRTTTCP(hosts []string) (float64, error) {
+// Returns the measured RTT, number of active hosts, and any error
+func (s *CakeAutoRTTService) measureRTTTCP(hosts []string) (float64, int, error) {
 	if len(hosts) == 0 {
-		return 0, fmt.Errorf("no hosts to measure")
+		return 0, 0, fmt.Errorf("no hosts to measure")
 	}
 
 	s.AddLog("DEBUG", fmt.Sprintf("Measuring RTT using TCP for %d hosts", len(hosts)))
@@ -297,7 +302,7 @@ func (s *CakeAutoRTTService) measureRTTTCP(hosts []string) (float64, error) {
 
 	// Check if we have enough responding hosts
 	if aliveCount < s.config.MinHosts {
-		return 0, fmt.Errorf("not enough responding hosts (%d < %d)", aliveCount, s.config.MinHosts)
+		return 0, aliveCount, fmt.Errorf("not enough responding hosts (%d < %d)", aliveCount, s.config.MinHosts)
 	}
 
 	// Calculate statistics
@@ -314,7 +319,7 @@ func (s *CakeAutoRTTService) measureRTTTCP(hosts []string) (float64, error) {
 	s.AddLog("DEBUG", fmt.Sprintf("Using worst RTT: %.2fms (avg: %.2fms, worst: %.2fms)",
 		worstRTT, avgRTT, worstRTT))
 
-	return worstRTT, nil
+	return worstRTT, aliveCount, nil
 }
 
 // measureSingleHostTCP measures RTT to a single host using TCP connection
@@ -418,19 +423,11 @@ func (s *CakeAutoRTTService) GetSystemStatus() SystemStatus {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	// Count active hosts
-	activeHosts := 0
-	for _, rtt := range s.lastRTT {
-		if rtt > 0 {
-			activeHosts++
-		}
-	}
-
 	return SystemStatus{
 		Running:     s.running,
 		LastUpdate:  s.lastUpdate,
 		CurrentRTT:  s.lastRTT,
-		ActiveHosts: activeHosts,
+		ActiveHosts: s.activeHosts, // Use the properly tracked active hosts count
 		DLInterface: s.config.DLInterface,
 		ULInterface: s.config.ULInterface,
 		Config:      s.config,
