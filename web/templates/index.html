@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .header h1 {
+            color: #64ffda;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px rgba(100, 255, 218, 0.3);
+        }
+
+        .header .subtitle {
+            color: #b0b0b0;
+            font-size: 1.1em;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-running {
+            background: #4caf50;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+        }
+
+        .status-error {
+            background: #f44336;
+            box-shadow: 0 0 10px rgba(244, 67, 54, 0.5);
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .card h3 {
+            color: #64ffda;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            display: flex;
+            align-items: center;
+        }
+
+        .card-icon {
+            margin-right: 10px;
+            font-size: 1.2em;
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .metric:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            color: #b0b0b0;
+        }
+
+        .metric-value {
+            color: #64ffda;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+
+        .qdisc-stats {
+            grid-column: 1 / -1;
+        }
+
+        .qdisc-item {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid #64ffda;
+        }
+
+        .qdisc-interface {
+            color: #64ffda;
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 8px;
+        }
+
+        .qdisc-details {
+            color: #e0e0e0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
+
+        .logs-container {
+            grid-column: 1 / -1;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            display: flex;
+            align-items: flex-start;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .log-timestamp {
+            color: #888;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            min-width: 80px;
+            margin-right: 15px;
+        }
+
+        .log-level {
+            min-width: 60px;
+            margin-right: 15px;
+            font-weight: bold;
+            font-size: 0.85em;
+        }
+
+        .log-level.INFO {
+            color: #4caf50;
+        }
+
+        .log-level.ERROR {
+            color: #f44336;
+        }
+
+        .log-level.WARN {
+            color: #ff9800;
+        }
+
+        .log-message {
+            color: #e0e0e0;
+            flex: 1;
+            font-size: 0.9em;
+        }
+
+        .refresh-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(100, 255, 218, 0.2);
+            border: 1px solid #64ffda;
+            border-radius: 50px;
+            padding: 10px 20px;
+            color: #64ffda;
+            font-size: 0.9em;
+            backdrop-filter: blur(10px);
+        }
+
+        .connection-status {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 15px;
+            border-radius: 25px;
+            font-size: 0.85em;
+            backdrop-filter: blur(10px);
+        }
+
+        .connected {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid #4caf50;
+            color: #4caf50;
+        }
+
+        .disconnected {
+            background: rgba(244, 67, 54, 0.2);
+            border: 1px solid #f44336;
+            color: #f44336;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(100, 255, 218, 0.3);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(100, 255, 218, 0.5);
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><span class="status-indicator status-running" id="serviceStatus"></span>CAKE Auto RTT Monitor</h1>
+            <div class="subtitle">Real-time monitoring of CAKE qdisc RTT adjustments</div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h3><span class="card-icon">📊</span>System Status</h3>
+                <div class="metric">
+                    <span class="metric-label">Service Status</span>
+                    <span class="metric-value" id="serviceStatusText">Loading...</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Active Hosts</span>
+                    <span class="metric-value" id="activeHosts">-</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Current RTT</span>
+                    <span class="metric-value" id="currentRTT">-</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Last Update</span>
+                    <span class="metric-value" id="lastUpdate">-</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3><span class="card-icon">⚙️</span>Configuration</h3>
+                <div class="metric">
+                    <span class="metric-label">Update Interval</span>
+                    <span class="metric-value">5s</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Min Hosts</span>
+                    <span class="metric-value">3</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Max Hosts</span>
+                    <span class="metric-value">100</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">RTT Margin</span>
+                    <span class="metric-value">10%</span>
+                </div>
+            </div>
+
+            <div class="card qdisc-stats">
+                <h3><span class="card-icon">🔧</span>CAKE Qdisc Statistics</h3>
+                <div id="qdiscContainer">
+                    <div class="qdisc-item">
+                        <div class="qdisc-interface">Loading qdisc statistics...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card logs-container">
+                <h3><span class="card-icon">📝</span>Recent Logs</h3>
+                <div id="logsContainer">
+                    <div class="log-entry">
+                        <span class="log-timestamp">--:--:--</span>
+                        <span class="log-level INFO">INFO</span>
+                        <span class="log-message">Loading logs...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="refresh-indicator" id="refreshIndicator">🔄 Live Updates</div>
+    <div class="connection-status disconnected" id="connectionStatus">⚠️ Connecting...</div>
+
+    <script>
+        let ws;
+        let reconnectInterval;
+        const maxReconnectAttempts = 5;
+        let reconnectAttempts = 0;
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function () {
+                console.log('WebSocket connected');
+                reconnectAttempts = 0;
+                updateConnectionStatus(true);
+                clearInterval(reconnectInterval);
+            };
+
+            ws.onmessage = function (event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'log') {
+                        addLogEntry(data.data);
+                    } else {
+                        updateStatus(data);
+                    }
+                } catch (e) {
+                    console.error('Error parsing WebSocket message:', e);
+                }
+            };
+
+            ws.onclose = function () {
+                console.log('WebSocket disconnected');
+                updateConnectionStatus(false);
+
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
+                    reconnectInterval = setTimeout(connectWebSocket, 3000);
+                }
+            };
+
+            ws.onerror = function (error) {
+                console.error('WebSocket error:', error);
+                updateConnectionStatus(false);
+            };
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusElement = document.getElementById('connectionStatus');
+            if (connected) {
+                statusElement.className = 'connection-status connected';
+                statusElement.textContent = '✅ Connected';
+            } else {
+                statusElement.className = 'connection-status disconnected';
+                statusElement.textContent = '⚠️ Disconnected';
+            }
+        }
+
+        function updateStatus(data) {
+            // Update service status
+            document.getElementById('serviceStatusText').textContent = data.service_status || 'Unknown';
+            document.getElementById('activeHosts').textContent = data.active_hosts || '0';
+            document.getElementById('currentRTT').textContent = data.current_rtt || 'N/A';
+            document.getElementById('lastUpdate').textContent = data.timestamp || 'Never';
+
+            // Update service status indicator
+            const statusIndicator = document.getElementById('serviceStatus');
+            if (data.service_status === 'Running') {
+                statusIndicator.className = 'status-indicator status-running';
+            } else {
+                statusIndicator.className = 'status-indicator status-error';
+            }
+
+            // Update qdisc statistics
+            updateQdiscStats(data.qdisc_stats || []);
+
+            // Update logs
+            if (data.recent_logs) {
+                updateLogs(data.recent_logs);
+            }
+        }
+
+        function updateQdiscStats(stats) {
+            const container = document.getElementById('qdiscContainer');
+
+            if (stats.length === 0) {
+                container.innerHTML = '<div class="qdisc-item"><div class="qdisc-interface">No CAKE qdiscs found</div></div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            stats.forEach(stat => {
+                const item = document.createElement('div');
+                item.className = 'qdisc-item';
+                item.innerHTML = `
+                    <div class="qdisc-interface">${stat.interface} (RTT: ${stat.rtt})</div>
+                    <div class="qdisc-details">${stat.qdisc}\n${stat.stats}</div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function updateLogs(logs) {
+            const container = document.getElementById('logsContainer');
+            container.innerHTML = '';
+
+            logs.forEach(log => {
+                addLogEntry(log);
+            });
+        }
+
+        function addLogEntry(log) {
+            const container = document.getElementById('logsContainer');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `
+                <span class="log-timestamp">${log.timestamp}</span>
+                <span class="log-level ${log.level}">${log.level}</span>
+                <span class="log-message">${log.message}</span>
+            `;
+
+            // Add to top of container
+            container.insertBefore(entry, container.firstChild);
+
+            // Keep only last 50 entries
+            while (container.children.length > 50) {
+                container.removeChild(container.lastChild);
+            }
+        }
+
+        // Initialize WebSocket connection
+        connectWebSocket();
+
+        // Fallback: refresh page data every 30 seconds if WebSocket fails
+        setInterval(() => {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                fetch('/api/status')
+                    .then(response => response.json())
+                    .then(data => updateStatus(data))
+                    .catch(error => console.error('Error fetching status:', error));
+            }
+        }, 30000);
+    </script>
+</body>
+
+</html>

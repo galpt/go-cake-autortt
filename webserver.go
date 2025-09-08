@@ -1,0 +1,337 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+	"os/exec"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+)
+
+// WebServer handles the HTTP server for monitoring
+type WebServer struct {
+	service  *CakeAutoRTTService
+	config   *Config
+	clients  map[*websocket.Conn]bool
+	clientMu sync.RWMutex
+	upgrader websocket.Upgrader
+	logChan  chan LogMessage
+}
+
+// LogMessage represents a log entry for the web interface
+type LogMessage struct {
+	Timestamp string `json:"timestamp"`
+	Level     string `json:"level"`
+	Message   string `json:"message"`
+}
+
+// QdiscStats represents traffic control qdisc statistics
+type QdiscStats struct {
+	Interface string `json:"interface"`
+	Qdisc     string `json:"qdisc"`
+	Stats     string `json:"stats"`
+	RTT       string `json:"rtt"`
+}
+
+// WebSystemStatus represents the current system status for web interface
+type WebSystemStatus struct {
+	Timestamp     string       `json:"timestamp"`
+	ServiceStatus string       `json:"service_status"`
+	ActiveHosts   int          `json:"active_hosts"`
+	CurrentRTT    string       `json:"current_rtt"`
+	QdiscStats    []QdiscStats `json:"qdisc_stats"`
+	RecentLogs    []LogMessage `json:"recent_logs"`
+}
+
+// NewWebServer creates a new web server instance
+func NewWebServer(service *CakeAutoRTTService, config *Config) *WebServer {
+	return &WebServer{
+		service: service,
+		config:  config,
+		clients: make(map[*websocket.Conn]bool),
+		upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true // Allow all origins for simplicity
+			},
+		},
+		logChan: make(chan LogMessage, 100),
+	}
+}
+
+// Start starts the web server
+func (ws *WebServer) Start() error {
+	if !ws.config.WebEnabled {
+		return nil
+	}
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
+
+	// Serve static files
+	r.Static("/static", "./web/static")
+	r.LoadHTMLGlob("web/templates/*")
+
+	// Main monitoring page
+	r.GET("/cake-autortt", ws.handleIndex)
+	r.GET("/", ws.handleIndex)
+
+	// API endpoints
+	api := r.Group("/api")
+	{
+		api.GET("/status", ws.handleStatus)
+		api.GET("/qdisc", ws.handleQdiscStats)
+		api.GET("/logs", ws.handleLogs)
+	}
+
+	// WebSocket endpoint for real-time updates
+	r.GET("/ws", ws.handleWebSocket)
+
+	// Start background goroutine for broadcasting updates
+	go ws.broadcastUpdates()
+
+	addr := fmt.Sprintf(":%d", ws.config.WebPort)
+	log.Printf("[INFO] Starting web server on %s", addr)
+	return r.Run(addr)
+}
+
+// handleIndex serves the main monitoring page
+func (ws *WebServer) handleIndex(c *gin.Context) {
+	c.HTML(http.StatusOK, "index.html", gin.H{
+		"title": "CAKE Auto RTT Monitor",
+	})
+}
+
+// handleStatus returns the current system status
+func (ws *WebServer) handleStatus(c *gin.Context) {
+	status := ws.getSystemStatus()
+	c.JSON(http.StatusOK, status)
+}
+
+// handleQdiscStats returns current qdisc statistics
+func (ws *WebServer) handleQdiscStats(c *gin.Context) {
+	stats := ws.getQdiscStats()
+	c.JSON(http.StatusOK, stats)
+}
+
+// handleLogs returns recent log messages
+func (ws *WebServer) handleLogs(c *gin.Context) {
+	logs := ws.getRecentLogs()
+	c.JSON(http.StatusOK, logs)
+}
+
+// handleWebSocket handles WebSocket connections for real-time updates
+func (ws *WebServer) handleWebSocket(c *gin.Context) {
+	conn, err := ws.upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Printf("[ERROR] WebSocket upgrade failed: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	ws.clientMu.Lock()
+	ws.clients[conn] = true
+	ws.clientMu.Unlock()
+
+	defer func() {
+		ws.clientMu.Lock()
+		delete(ws.clients, conn)
+		ws.clientMu.Unlock()
+	}()
+
+	// Send initial status
+	status := ws.getSystemStatus()
+	if err := conn.WriteJSON(status); err != nil {
+		log.Printf("[ERROR] Failed to send initial status: %v", err)
+		return
+	}
+
+	// Keep connection alive and handle client messages
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("[ERROR] WebSocket error: %v", err)
+			}
+			break
+		}
+	}
+}
+
+// broadcastUpdates sends periodic updates to all connected WebSocket clients
+func (ws *WebServer) broadcastUpdates() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			status := ws.getSystemStatus()
+			ws.broadcastToClients(status)
+		case logMsg := <-ws.logChan:
+			// Broadcast new log message immediately
+			ws.broadcastToClients(map[string]interface{}{
+				"type": "log",
+				"data": logMsg,
+			})
+		}
+	}
+}
+
+// broadcastToClients sends data to all connected WebSocket clients
+func (ws *WebServer) broadcastToClients(data interface{}) {
+	ws.clientMu.RLock()
+	defer ws.clientMu.RUnlock()
+
+	for client := range ws.clients {
+		if err := client.WriteJSON(data); err != nil {
+			log.Printf("[ERROR] Failed to send data to client: %v", err)
+			client.Close()
+			delete(ws.clients, client)
+		}
+	}
+}
+
+// getSystemStatus returns the current system status
+func (ws *WebServer) getSystemStatus() WebSystemStatus {
+	status := WebSystemStatus{
+		Timestamp:     time.Now().Format("2006-01-02 15:04:05"),
+		ServiceStatus: "Running",
+		ActiveHosts:   0,
+		CurrentRTT:    "N/A",
+		QdiscStats:    ws.getQdiscStats(),
+		RecentLogs:    ws.getRecentLogs(),
+	}
+
+	if ws.service != nil {
+		// Get system status from service
+		sysStatus := ws.service.GetSystemStatus()
+		status.ActiveHosts = sysStatus.ActiveHosts
+		if len(sysStatus.CurrentRTT) > 0 {
+			// Get the most recent RTT value
+			for key, rtt := range sysStatus.CurrentRTT {
+				status.CurrentRTT = fmt.Sprintf("%s: %dms", key, rtt)
+				break // Just show the first one for now
+			}
+		}
+	}
+
+	return status
+}
+
+// getQdiscStats returns current qdisc statistics
+func (ws *WebServer) getQdiscStats() []QdiscStats {
+	var stats []QdiscStats
+
+	// Execute tc -s qdisc command
+	cmd := exec.Command("tc", "-s", "qdisc")
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("[ERROR] Failed to get qdisc stats: %v", err)
+		return stats
+	}
+
+	// Parse output and extract CAKE qdiscs
+	lines := strings.Split(string(output), "\n")
+	var currentInterface, currentQdisc, currentStats string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		if strings.Contains(line, "qdisc cake") {
+			parts := strings.Fields(line)
+			if len(parts) >= 5 {
+				currentInterface = parts[4]
+				currentQdisc = line
+			}
+		} else if strings.HasPrefix(line, "Sent") || strings.HasPrefix(line, "backlog") {
+			currentStats += line + "\n"
+		} else if currentInterface != "" && (strings.Contains(line, "rtt") || strings.Contains(line, "RTT")) {
+			// Extract RTT information
+			rttInfo := ws.extractRTTFromLine(line)
+			stats = append(stats, QdiscStats{
+				Interface: currentInterface,
+				Qdisc:     currentQdisc,
+				Stats:     strings.TrimSpace(currentStats),
+				RTT:       rttInfo,
+			})
+			currentInterface = ""
+			currentQdisc = ""
+			currentStats = ""
+		}
+	}
+
+	// Add any remaining qdisc without RTT info
+	if currentInterface != "" {
+		stats = append(stats, QdiscStats{
+			Interface: currentInterface,
+			Qdisc:     currentQdisc,
+			Stats:     strings.TrimSpace(currentStats),
+			RTT:       "N/A",
+		})
+	}
+
+	return stats
+}
+
+// extractRTTFromLine extracts RTT information from a tc output line
+func (ws *WebServer) extractRTTFromLine(line string) string {
+	if strings.Contains(line, "rtt") {
+		parts := strings.Fields(line)
+		for i, part := range parts {
+			if part == "rtt" && i+1 < len(parts) {
+				return parts[i+1]
+			}
+		}
+	}
+	return "N/A"
+}
+
+// getRecentLogs returns recent log messages
+func (ws *WebServer) getRecentLogs() []LogMessage {
+	// This is a simplified implementation
+	// In a real implementation, you might want to store logs in a circular buffer
+	return []LogMessage{
+		{
+			Timestamp: time.Now().Format("15:04:05"),
+			Level:     "INFO",
+			Message:   "Service is running normally",
+		},
+	}
+}
+
+// LogInfo sends an info log message to the web interface
+func (ws *WebServer) LogInfo(message string) {
+	logMsg := LogMessage{
+		Timestamp: time.Now().Format("15:04:05"),
+		Level:     "INFO",
+		Message:   message,
+	}
+	select {
+	case ws.logChan <- logMsg:
+	default:
+		// Channel is full, skip this log
+	}
+}
+
+// LogError sends an error log message to the web interface
+func (ws *WebServer) LogError(message string) {
+	logMsg := LogMessage{
+		Timestamp: time.Now().Format("15:04:05"),
+		Level:     "ERROR",
+		Message:   message,
+	}
+	select {
+	case ws.logChan <- logMsg:
+	default:
+		// Channel is full, skip this log
+	}
+}

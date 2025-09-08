@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# cake-autortt hotplug script
+# Restart cake-autortt when network interfaces change
+
+[ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifdown" ] || exit 0
+
+# Check if the interface has CAKE qdisc
+if tc qdisc show dev "$INTERFACE" 2>/dev/null | grep -q "qdisc cake"; then
+	logger -t "cake-autortt" "Interface $INTERFACE $ACTION detected, restarting service"
+	/etc/init.d/cake-autortt restart
+fi

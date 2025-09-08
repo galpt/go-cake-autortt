@@ -1,0 +1,129 @@
+#!/bin/sh /etc/rc.common
+# cake-autortt - automatically adjusts CAKE qdisc RTT parameter
+# based on measured RTT to active network connections (Go version)
+
+START=99
+USE_PROCD=1
+
+PROG="/usr/bin/cake-autortt"
+CONF="/etc/config/cake-autortt"
+
+# Configuration defaults
+rtt_update_interval=5    # seconds between qdisc RTT updates
+min_hosts=3              # minimum number of hosts needed for RTT calculation
+max_hosts=100            # maximum number of hosts to probe simultaneously
+rtt_margin_percent=10    # percentage margin added to measured RTT
+default_rtt_ms=100       # default RTT in case no hosts are available
+dl_interface=""          # download interface (auto-detected if empty)
+ul_interface=""          # upload interface (auto-detected if empty)
+debug=0                  # enable debug logging
+tcp_connect_timeout=3    # TCP connection timeout for RTT measurement
+max_concurrent_probes=50 # maximum concurrent TCP probes
+web_enabled=1            # enable web server
+web_port=80              # web server port
+
+validate_cake_autortt_section() {
+	uci_load_validate cake-autortt cake-autortt "$1" "$2" \
+		'rtt_update_interval:uinteger:5' \
+		'min_hosts:uinteger:3' \
+		'max_hosts:uinteger:100' \
+		'rtt_margin_percent:uinteger:10' \
+		'default_rtt_ms:uinteger:100' \
+		'dl_interface:string' \
+		'ul_interface:string' \
+		'debug:bool:0' \
+		'tcp_connect_timeout:uinteger:3' \
+		'max_concurrent_probes:uinteger:50' \
+		'web_enabled:bool:1' \
+		'web_port:uinteger:80'
+}
+
+load_config() {
+	validate_cake_autortt_section cake-autortt validate_config || {
+		echo "validation failed"
+		return 1
+	}
+}
+
+validate_config() {
+	# Check if tc is available
+	command -v tc >/dev/null 2>&1 || {
+		echo "ERROR: tc (traffic control) is required but not installed"
+		return 1
+	}
+	
+	# Auto-detect interfaces if not specified
+	if [ -z "$dl_interface" ] || [ -z "$ul_interface" ]; then
+		# Look for cake qdiscs to determine interfaces
+		local detected_interfaces
+		detected_interfaces=$(tc qdisc show | grep "qdisc cake" | awk '{print $5}' | head -2)
+		
+		if [ -z "$dl_interface" ]; then
+			# Try to detect download interface (typically ifb-*)
+			dl_interface=$(echo "$detected_interfaces" | grep "ifb" | head -1)
+			[ -z "$dl_interface" ] && dl_interface=$(echo "$detected_interfaces" | head -1)
+		fi
+		
+		if [ -z "$ul_interface" ]; then
+			# Try to detect upload interface (typically physical interface)
+			ul_interface=$(echo "$detected_interfaces" | grep -v "ifb" | head -1)
+			[ -z "$ul_interface" ] && ul_interface=$(echo "$detected_interfaces" | tail -1)
+		fi
+	fi
+	
+	# Validate that interfaces have cake qdisc
+	if [ -n "$dl_interface" ]; then
+		tc qdisc show dev "$dl_interface" | grep -q "qdisc cake" || {
+			echo "WARNING: Interface $dl_interface does not have cake qdisc"
+		}
+	fi
+	
+	if [ -n "$ul_interface" ]; then
+		tc qdisc show dev "$ul_interface" | grep -q "qdisc cake" || {
+			echo "WARNING: Interface $ul_interface does not have cake qdisc"
+		}
+	fi
+	
+	return 0
+}
+
+start_service() {
+	load_config || return 1
+	
+	procd_open_instance
+	procd_set_param command "$PROG"
+	procd_append_param command --rtt-update-interval "$rtt_update_interval"
+	procd_append_param command --min-hosts "$min_hosts"
+	procd_append_param command --max-hosts "$max_hosts"
+	procd_append_param command --rtt-margin-percent "$rtt_margin_percent"
+	procd_append_param command --default-rtt-ms "$default_rtt_ms"
+	procd_append_param command --tcp-timeout "$tcp_connect_timeout"
+	procd_append_param command --max-concurrent "$max_concurrent_probes"
+	
+	[ -n "$dl_interface" ] && procd_append_param command --dl-interface "$dl_interface"
+	[ -n "$ul_interface" ] && procd_append_param command --ul-interface "$ul_interface"
+	[ "$debug" = "1" ] && procd_append_param command --debug
+	[ "$web_enabled" = "1" ] && procd_append_param command --web-enabled
+	[ -n "$web_port" ] && procd_append_param command --web-port "$web_port"
+	
+	procd_set_param pidfile /var/run/cake-autortt.pid
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param respawn
+	procd_close_instance
+	
+	logger -t "cake-autortt" "Started cake-autortt service (Go version)"
+}
+
+stop_service() {
+	logger -t "cake-autortt" "Stopped cake-autortt service (Go version)"
+}
+
+reload_service() {
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger "cake-autortt"
+}
