@@ -60,7 +60,7 @@ func NewCakeAutoRTTService(config *Config) (*CakeAutoRTTService, error) {
 		config:     config,
 		running:    false,
 		lastRTT:    make(map[string]int),
-		lastUpdate: time.Now(),
+		lastUpdate: time.Now().Local(),
 		ctx:        ctx,
 		cancel:     cancel,
 		recentLogs: make([]LogEntry, 0, 100),
@@ -97,7 +97,7 @@ func (s *CakeAutoRTTService) Run(ctx context.Context) error {
 		case <-ticker.C:
 			s.performRTTMeasurementCycle()
 			s.mutex.Lock()
-			s.lastUpdate = time.Now()
+			s.lastUpdate = time.Now().Local()
 			s.mutex.Unlock()
 		}
 	}
@@ -394,7 +394,7 @@ func (s *CakeAutoRTTService) AddLog(level, message string) {
 	defer s.logMutex.Unlock()
 
 	entry := LogEntry{
-		Timestamp: time.Now(),
+		Timestamp: time.Now().Local(),
 		Level:     level,
 		Message:   message,
 	}

@@ -205,7 +205,7 @@ func (ws *WebServer) broadcastToClients(data interface{}) {
 // getSystemStatus returns the current system status
 func (ws *WebServer) getSystemStatus() WebSystemStatus {
 	status := WebSystemStatus{
-		Timestamp:     time.Now().Format("2006-01-02 15:04:05"),
+		Timestamp:     time.Now().Local().Format(time.RFC1123),
 		ServiceStatus: "Running",
 		ActiveHosts:   0,
 		CurrentRTT:    "N/A",
@@ -353,7 +353,7 @@ func (ws *WebServer) getRecentLogs() []LogMessage {
 	// In a real implementation, you might want to store logs in a circular buffer
 	return []LogMessage{
 		{
-			Timestamp: time.Now().Format("15:04:05"),
+			Timestamp: time.Now().Local().Format("15:04:05"),
 			Level:     "INFO",
 			Message:   "Service is running normally",
 		},
@@ -363,7 +363,7 @@ func (ws *WebServer) getRecentLogs() []LogMessage {
 // LogInfo sends an info log message to the web interface
 func (ws *WebServer) LogInfo(message string) {
 	logMsg := LogMessage{
-		Timestamp: time.Now().Format("15:04:05"),
+		Timestamp: time.Now().Local().Format("15:04:05"),
 		Level:     "INFO",
 		Message:   message,
 	}
@@ -377,7 +377,7 @@ func (ws *WebServer) LogInfo(message string) {
 // LogError sends an error log message to the web interface
 func (ws *WebServer) LogError(message string) {
 	logMsg := LogMessage{
-		Timestamp: time.Now().Format("15:04:05"),
+		Timestamp: time.Now().Local().Format("15:04:05"),
 		Level:     "ERROR",
 		Message:   message,
 	}

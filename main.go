@@ -131,7 +131,7 @@ func loadConfig() error {
 }
 
 func logMessage(level, message string) {
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	timestamp := time.Now().Local().Format(time.RFC1123)
 
 	// Skip DEBUG messages when debug is disabled
 	if level == "DEBUG" && !cfg.Debug {
