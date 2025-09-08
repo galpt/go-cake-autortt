@@ -3,7 +3,7 @@
 [![构建状态](https://github.com/galpt/go-cake-autortt/workflows/Build/badge.svg)](https://github.com/galpt/go-cake-autortt/actions)
 [![Go Report Card](https://goreportcard.com/badge/github.com/galpt/go-cake-autortt)](https://goreportcard.com/report/github.com/galpt/go-cake-autortt)
 [![许可证: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
-[![Docker Pulls](https://img.shields.io/docker/pulls/galpt/go-cake-autortt)](https://hub.docker.com/r/galpt/go-cake-autortt)
+[![Docker Pulls](https://img.shields.io/docker/pulls/arasseo/go-cake-autortt)](https://hub.docker.com/r/arasseo/go-cake-autortt)
 
 **语言:** [English](README.md) | [中文](README_zh.md)
 
@@ -79,14 +79,14 @@ curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.
 
 ```bash
 # 拉取镜像
-docker pull galpt/go-cake-autortt:latest
+docker pull arasseo/go-cake-autortt:latest
 
 # 使用主机网络运行（访问接口所需）
 docker run -d --name cake-autortt \
   --network host \
   --privileged \
   -v /proc/net/nf_conntrack:/proc/net/nf_conntrack:ro \
-  galpt/go-cake-autortt:latest
+  arasseo/go-cake-autortt:latest
 ```
 
 ### OpenWrt包安装

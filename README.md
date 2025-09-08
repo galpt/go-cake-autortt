@@ -3,7 +3,7 @@
 [![Build Status](https://github.com/galpt/go-cake-autortt/workflows/Build/badge.svg)](https://github.com/galpt/go-cake-autortt/actions)
 [![Go Report Card](https://goreportcard.com/badge/github.com/galpt/go-cake-autortt)](https://goreportcard.com/report/github.com/galpt/go-cake-autortt)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
-[![Docker Pulls](https://img.shields.io/docker/pulls/galpt/go-cake-autortt)](https://hub.docker.com/r/galpt/go-cake-autortt)
+[![Docker Pulls](https://img.shields.io/docker/pulls/arasseo/go-cake-autortt)](https://hub.docker.com/r/arasseo/go-cake-autortt)
 
 **Languages:** [English](README.md) | [中文](README_zh.md)
 
@@ -71,14 +71,14 @@ After installation, access the web interface at: `http://your-router-ip/cake-aut
 
 ```bash
 # Pull the image
-docker pull galpt/go-cake-autortt:latest
+docker pull arasseo/go-cake-autortt:latest
 
 # Run with host networking (required for interface access)
 docker run -d --name cake-autortt \
   --network host \
   --privileged \
   -v /proc/net/nf_conntrack:/proc/net/nf_conntrack:ro \
-  galpt/go-cake-autortt:latest
+  arasseo/go-cake-autortt:latest
 ```
 
 ### OpenWrt Package Installation
