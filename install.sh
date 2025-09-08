@@ -1,7 +1,8 @@
-#!/bin/bash
+#!/bin/sh
 
 # cake-autortt Go version installation script
 # This script installs cake-autortt as a system service
+# Compatible with OpenWrt (ash/busybox) and other POSIX shells
 
 set -e
 
@@ -36,8 +37,11 @@ log_error() {
 
 # Check if running as root
 check_root() {
-    if [[ $EUID -ne 0 ]]; then
+    # On OpenWrt, check if we're root without relying on sudo
+    if [ "$(id -u)" -ne 0 ]; then
         log_error "This script must be run as root"
+        log_info "On OpenWrt, run directly as root without sudo:"
+        log_info "curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.sh | ash"
         exit 1
     fi
 }
@@ -82,14 +86,27 @@ detect_arch() {
 
 # Detect operating system
 detect_os() {
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        echo "linux"
-    elif [[ "$OSTYPE" == "freebsd"* ]]; then
-        echo "freebsd"
-    else
-        log_error "Unsupported operating system: $OSTYPE"
-        exit 1
-    fi
+    case "$OSTYPE" in
+        linux-gnu*)
+            echo "linux"
+            ;;
+        freebsd*)
+            echo "freebsd"
+            ;;
+        *)
+            # Fallback detection for systems without OSTYPE
+            if [ -f /etc/openwrt_release ]; then
+                echo "linux"
+            elif uname -s | grep -q "Linux"; then
+                echo "linux"
+            elif uname -s | grep -q "FreeBSD"; then
+                echo "freebsd"
+            else
+                log_error "Unsupported operating system: $(uname -s)"
+                exit 1
+            fi
+            ;;
+    esac
 }
 
 # Check dependencies
@@ -97,14 +114,14 @@ check_dependencies() {
     log_info "Checking dependencies..."
     
     # Check for tc (traffic control)
-    if ! command -v tc &> /dev/null; then
+    if ! command -v tc > /dev/null 2>&1; then
         log_error "tc (traffic control) is required but not installed"
         log_info "Please install iproute2 package"
         exit 1
     fi
     
     # Check for wget or curl
-    if ! command -v wget &> /dev/null && ! command -v curl &> /dev/null; then
+    if ! command -v wget > /dev/null 2>&1 && ! command -v curl > /dev/null 2>&1; then
         log_error "wget or curl is required for downloading"
         exit 1
     fi
@@ -127,13 +144,13 @@ download_binary() {
     cd "$temp_dir"
     
     # Download with wget or curl
-    if command -v wget &> /dev/null; then
+    if command -v wget > /dev/null 2>&1; then
         wget -q "$download_url" -O "${binary_name}.tar.gz"
     else
         curl -sL "$download_url" -o "${binary_name}.tar.gz"
     fi
     
-    if [[ $? -ne 0 ]]; then
+    if [ $? -ne 0 ]; then
         log_error "Failed to download binary"
         exit 1
     fi
@@ -161,7 +178,7 @@ install_config() {
     mkdir -p /etc/hotplug.d/iface
     
     # Install config file if it doesn't exist
-    if [[ ! -f "/etc/config/$SERVICE_NAME" ]]; then
+    if [ ! -f "/etc/config/$SERVICE_NAME" ]; then
         cat > "/etc/config/$SERVICE_NAME" << 'EOF'
 config cake-autortt 'global'
 	option rtt_update_interval '5'
@@ -186,12 +203,12 @@ EOF
 
 # Install OpenWrt service files
 install_openwrt_service() {
-    if [[ -d "/etc/init.d" ]] && command -v uci &> /dev/null; then
+    if [ -d "/etc/init.d" ] && command -v uci > /dev/null 2>&1; then
         log_info "Installing OpenWrt service files..."
         
         # Download and install init script
         local init_script_url="${REPO_URL}/raw/main/etc/init.d/cake-autortt"
-        if command -v wget &> /dev/null; then
+        if command -v wget > /dev/null 2>&1; then
             wget -q "$init_script_url" -O "/etc/init.d/$SERVICE_NAME"
         else
             curl -sL "$init_script_url" -o "/etc/init.d/$SERVICE_NAME"
@@ -201,7 +218,7 @@ install_openwrt_service() {
         
         # Download and install hotplug script
         local hotplug_script_url="${REPO_URL}/raw/main/etc/hotplug.d/iface/99-cake-autortt"
-        if command -v wget &> /dev/null; then
+        if command -v wget > /dev/null 2>&1; then
             wget -q "$hotplug_script_url" -O "/etc/hotplug.d/iface/99-cake-autortt"
         else
             curl -sL "$hotplug_script_url" -o "/etc/hotplug.d/iface/99-cake-autortt"
@@ -217,7 +234,7 @@ install_openwrt_service() {
 
 # Install systemd service
 install_systemd_service() {
-    if command -v systemctl &> /dev/null; then
+    if command -v systemctl > /dev/null 2>&1; then
         log_info "Installing systemd service..."
         
         cat > "/etc/systemd/system/$SERVICE_NAME.service" << EOF
@@ -247,12 +264,12 @@ EOF
 
 # Enable and start service
 enable_service() {
-    if command -v systemctl &> /dev/null; then
+    if command -v systemctl > /dev/null 2>&1; then
         log_info "Enabling and starting systemd service..."
         systemctl enable "$SERVICE_NAME"
         systemctl start "$SERVICE_NAME"
         log_success "Service enabled and started"
-    elif [[ -f "/etc/init.d/$SERVICE_NAME" ]]; then
+    elif [ -f "/etc/init.d/$SERVICE_NAME" ]; then
         log_info "Enabling OpenWrt service..."
         "/etc/init.d/$SERVICE_NAME" enable
         "/etc/init.d/$SERVICE_NAME" start

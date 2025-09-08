@@ -1,6 +1,6 @@
 # go-cake-autortt
 
-[![Build Status](https://github.com/galpt/go-cake-autortt/workflows/Build/badge.svg)](https://github.com/galpt/go-cake-autortt/actions)
+[![Build Status](https://github.com/galpt/go-cake-autortt/actions/workflows/build.yml/badge.svg)](https://github.com/galpt/go-cake-autortt/actions/workflows/build.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/galpt/go-cake-autortt)](https://goreportcard.com/report/github.com/galpt/go-cake-autortt)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
 [![Docker Pulls](https://img.shields.io/docker/pulls/arasseo/go-cake-autortt)](https://hub.docker.com/r/arasseo/go-cake-autortt)
@@ -40,9 +40,16 @@ A high-performance Go rewrite of the original shell-based `cake-autortt` tool. T
 
 ### Quick Install (Recommended)
 
+**For most Linux distributions:**
 ```bash
 # Download and run the installation script
 curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.sh | sudo bash
+```
+
+**For OpenWrt (run as root, no sudo needed):**
+```bash
+# Download and run the installation script directly as root
+curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.sh | ash
 ```
 
 After installation, access the web interface at: `http://your-router-ip/cake-autortt`

@@ -1,6 +1,6 @@
 # go-cake-autortt
 
-[![构建状态](https://github.com/galpt/go-cake-autortt/workflows/Build/badge.svg)](https://github.com/galpt/go-cake-autortt/actions)
+[![构建状态](https://github.com/galpt/go-cake-autortt/actions/workflows/build.yml/badge.svg)](https://github.com/galpt/go-cake-autortt/actions/workflows/build.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/galpt/go-cake-autortt)](https://goreportcard.com/report/github.com/galpt/go-cake-autortt)
 [![许可证: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
 [![Docker Pulls](https://img.shields.io/docker/pulls/arasseo/go-cake-autortt)](https://hub.docker.com/r/arasseo/go-cake-autortt)
@@ -40,9 +40,16 @@
 
 ### 快速安装（推荐）
 
+**对于大多数Linux发行版：**
 ```bash
 # 下载并运行安装脚本
 curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.sh | sudo bash
+```
+
+**对于OpenWrt（以root身份运行，无需sudo）：**
+```bash
+# 直接以root身份下载并运行安装脚本
+curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.sh | ash
 ```
 
 脚本将会：
