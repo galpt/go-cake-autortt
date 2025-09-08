@@ -158,8 +158,9 @@ download_binary() {
     # Extract binary
     tar -xzf "${binary_name}.tar.gz"
     
-    # Install binary
-    install -m 755 "$binary_name" "/usr/bin/$BINARY_NAME"
+    # Install binary (busybox compatible)
+    cp "$binary_name" "/usr/bin/$BINARY_NAME"
+    chmod 755 "/usr/bin/$BINARY_NAME"
     
     # Cleanup
     cd /
