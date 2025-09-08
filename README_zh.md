@@ -71,15 +71,23 @@ curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.
    sudo install -m 755 cake-autortt-linux-amd64 /usr/bin/cake-autortt
    ```
 
-2. **创建配置:**
+2. **创建配置文件:**
    ```bash
+   # 创建UCI格式配置（用于OpenWrt兼容性）
    sudo mkdir -p /etc/config
    sudo wget https://raw.githubusercontent.com/galpt/go-cake-autortt/main/etc/config/cake-autortt -O /etc/config/cake-autortt
+   
+   # 创建YAML格式配置（用于直接二进制使用）
+   sudo wget https://raw.githubusercontent.com/galpt/go-cake-autortt/main/cake-autortt.yaml.template -O /etc/cake-autortt.yaml
    ```
 
 3. **编辑配置:**
    ```bash
+   # 编辑UCI配置（如果使用OpenWrt服务）
    sudo nano /etc/config/cake-autortt
+   
+   # 或编辑YAML配置（如果直接运行二进制文件）
+   sudo nano /etc/cake-autortt.yaml
    ```
 
 ### Docker安装
@@ -110,6 +118,10 @@ opkg install go-cake-autortt_2.0.0_mips.ipk
 
 ## ⚙️ 配置
 
+应用程序支持两种配置格式：
+
+### OpenWrt UCI 格式（用于服务使用）
+
 编辑 `/etc/config/cake-autortt`:
 
 ```bash
@@ -127,6 +139,27 @@ config cake-autortt 'global'
     option tcp_connect_timeout '3'        # TCP连接超时（秒）
     option max_concurrent_probes '50'     # 最大并发RTT探测数
 ```
+
+### YAML 格式（用于直接二进制使用）
+
+编辑 `/etc/cake-autortt.yaml`:
+
+```yaml
+rtt_update_interval: 5        # RTT测量间隔（秒）
+min_hosts: 3                  # RTT计算的最小主机数
+max_hosts: 100                # 探测的最大主机数
+rtt_margin_percent: 10        # 安全边距百分比
+default_rtt_ms: 100           # 无测量时的默认RTT
+dl_interface: ""              # 下载接口（空则自动检测）
+ul_interface: ""              # 上传接口（空则自动检测）
+web_enabled: true             # 启用Web界面
+web_port: 11111               # Web界面端口
+debug: false                  # 启用调试日志
+tcp_connect_timeout: 3        # TCP连接超时（秒）
+max_concurrent_probes: 50     # 最大并发RTT探测数
+```
+
+**注意：** 安装脚本会自动创建两个配置文件。OpenWrt服务使用UCI格式配合命令行参数，而直接二进制执行使用YAML格式。
 
 ### 接口配置
 

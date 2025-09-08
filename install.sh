@@ -178,7 +178,7 @@ install_config() {
     mkdir -p /etc/init.d
     mkdir -p /etc/hotplug.d/iface
     
-    # Install config file if it doesn't exist
+    # Install UCI config file for OpenWrt if it doesn't exist
     if [ ! -f "/etc/config/$SERVICE_NAME" ]; then
         cat > "/etc/config/$SERVICE_NAME" << 'EOF'
 config cake-autortt 'global'
@@ -195,10 +195,24 @@ config cake-autortt 'global'
 	option web_enabled '1'
 	option web_port '11111'
 EOF
-        log_success "Configuration file created at /etc/config/$SERVICE_NAME"
+        log_success "UCI configuration file created at /etc/config/$SERVICE_NAME"
         log_warning "Please edit /etc/config/$SERVICE_NAME to configure your interfaces"
     else
-        log_info "Configuration file already exists, skipping"
+        log_info "UCI configuration file already exists, skipping"
+    fi
+    
+    # Also create YAML config file for direct binary usage
+    if [ ! -f "/etc/$SERVICE_NAME.yaml" ]; then
+        # Download the template file
+        if command -v wget > /dev/null 2>&1; then
+            wget -q "${REPO_URL}/raw/main/cake-autortt.yaml.template" -O "/etc/$SERVICE_NAME.yaml"
+        else
+            curl -sL "${REPO_URL}/raw/main/cake-autortt.yaml.template" -O "/etc/$SERVICE_NAME.yaml"
+        fi
+        log_success "YAML configuration file created at /etc/$SERVICE_NAME.yaml"
+        log_warning "Please edit /etc/$SERVICE_NAME.yaml if you plan to use the binary directly"
+    else
+        log_info "YAML configuration file already exists, skipping"
     fi
 }
 

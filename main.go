@@ -94,9 +94,12 @@ func loadConfig() error {
 	// Set config file path
 	viper.SetConfigName("cake-autortt")
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath("/etc/config/")
 	viper.AddConfigPath("/etc/")
+	viper.AddConfigPath("/etc/config/")
 	viper.AddConfigPath(".")
+	
+	// Also try the explicit YAML config file
+	viper.SetConfigFile("/etc/cake-autortt.yaml")
 
 	// Set environment variable prefix
 	viper.SetEnvPrefix("CAKE_AUTORTT")

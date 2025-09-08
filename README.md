@@ -63,15 +63,23 @@ After installation, access the web interface at: `http://your-router-ip:11111/ca
    sudo install -m 755 cake-autortt-linux-amd64 /usr/bin/cake-autortt
    ```
 
-2. **Create configuration:**
+2. **Create configuration files:**
    ```bash
+   # Create UCI format config (for OpenWrt compatibility)
    sudo mkdir -p /etc/config
    sudo wget https://raw.githubusercontent.com/galpt/go-cake-autortt/main/etc/config/cake-autortt -O /etc/config/cake-autortt
+   
+   # Create YAML format config (for direct binary usage)
+   sudo wget https://raw.githubusercontent.com/galpt/go-cake-autortt/main/cake-autortt.yaml.template -O /etc/cake-autortt.yaml
    ```
 
 3. **Edit configuration:**
    ```bash
+   # Edit UCI config (if using with OpenWrt service)
    sudo nano /etc/config/cake-autortt
+   
+   # Or edit YAML config (if running binary directly)
+   sudo nano /etc/cake-autortt.yaml
    ```
 
 ### Docker Installation
@@ -102,6 +110,10 @@ opkg install go-cake-autortt_2.0.0_mips.ipk
 
 ## ⚙️ Configuration
 
+The application supports two configuration formats:
+
+### OpenWrt UCI Format (for service usage)
+
 Edit `/etc/config/cake-autortt`:
 
 ```bash
@@ -119,6 +131,27 @@ config cake-autortt 'global'
     option tcp_connect_timeout '3'        # TCP connection timeout (seconds)
     option max_concurrent_probes '50'     # Maximum concurrent RTT probes
 ```
+
+### YAML Format (for direct binary usage)
+
+Edit `/etc/cake-autortt.yaml`:
+
+```yaml
+rtt_update_interval: 5        # RTT measurement interval (seconds)
+min_hosts: 3                  # Minimum hosts for RTT calculation
+max_hosts: 100                # Maximum hosts to probe
+rtt_margin_percent: 10        # Safety margin percentage
+default_rtt_ms: 100           # Default RTT when no measurements
+dl_interface: ""              # Download interface (auto-detect if empty)
+ul_interface: ""              # Upload interface (auto-detect if empty)
+web_enabled: true             # Enable web interface
+web_port: 11111               # Web interface port
+debug: false                  # Enable debug logging
+tcp_connect_timeout: 3        # TCP connection timeout (seconds)
+max_concurrent_probes: 50     # Maximum concurrent RTT probes
+```
+
+**Note:** The install script automatically creates both configuration files. OpenWrt service uses UCI format with command-line parameters, while direct binary execution uses YAML format.
 
 ### Interface Configuration
 
