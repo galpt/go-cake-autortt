@@ -91,14 +91,13 @@ func init() {
 }
 
 func loadConfig() error {
-	// Set config file path
+	// Set config file path - prioritize YAML config
 	viper.SetConfigName("cake-autortt")
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath("/etc/")
-	viper.AddConfigPath("/etc/config/")
 	viper.AddConfigPath(".")
 	
-	// Also try the explicit YAML config file
+	// Try the explicit YAML config file first
 	viper.SetConfigFile("/etc/cake-autortt.yaml")
 
 	// Set environment variable prefix
