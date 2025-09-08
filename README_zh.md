@@ -258,6 +258,8 @@ sudo systemctl status cake-autortt
 - 监控CAKE qdisc统计信息的实时更新
 - 无需SSH到路由器进行基本监控
 
+![Web界面截图](images/web-ui-cake-autortt.png)
+
 ### 命令行监控
 
 启用调试模式查看详细操作日志:

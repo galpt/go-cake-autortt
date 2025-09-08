@@ -255,6 +255,8 @@ The easiest way to monitor cake-autortt:
 - Monitor CAKE qdisc statistics with live updates
 - No need to SSH into the router for basic monitoring
 
+![Web UI Screenshot](images/web-ui-cake-autortt.png)
+
 ### Command Line Monitoring
 
 Enable debug mode for detailed operation logs:

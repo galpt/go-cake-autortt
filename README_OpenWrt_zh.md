@@ -256,6 +256,8 @@ logread -f | grep cake-autortt
 - 接口状态
 - 配置概览
 
+![Web界面截图](images/web-ui-cake-autortt.png)
+
 ### 命令行监控
 
 ```bash

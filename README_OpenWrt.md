@@ -256,6 +256,8 @@ Features:
 - Interface status
 - Configuration overview
 
+![Web UI Screenshot](images/web-ui-cake-autortt.png)
+
 ### Command Line Monitoring
 
 ```bash
