@@ -239,43 +239,80 @@ func (ws *WebServer) getQdiscStats() []QdiscStats {
 	// Parse output and extract CAKE qdiscs
 	lines := strings.Split(string(output), "\n")
 	var currentInterface, currentQdisc, currentStats string
+	var rttInfo string
+	inQdiscBlock := false
 
-	for _, line := range lines {
+	for i, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
+			// Empty line might indicate end of qdisc block
+			if inQdiscBlock && currentInterface != "" {
+				// Check if this is the end of the current qdisc block
+				nextLineEmpty := i+1 >= len(lines) || strings.TrimSpace(lines[i+1]) == ""
+				if nextLineEmpty || (i+1 < len(lines) && strings.Contains(lines[i+1], "qdisc")) {
+					// End of current qdisc block, add it to stats
+					stats = append(stats, QdiscStats{
+						Interface: currentInterface,
+						Qdisc:     currentQdisc,
+						Stats:     strings.TrimSpace(currentStats),
+						RTT:       rttInfo,
+					})
+					// Reset for next qdisc
+					currentInterface = ""
+					currentQdisc = ""
+					currentStats = ""
+					rttInfo = "N/A"
+					inQdiscBlock = false
+				}
+			}
 			continue
 		}
 
 		if strings.Contains(line, "qdisc cake") {
+			// Save previous qdisc if exists
+			if currentInterface != "" {
+				stats = append(stats, QdiscStats{
+					Interface: currentInterface,
+					Qdisc:     currentQdisc,
+					Stats:     strings.TrimSpace(currentStats),
+					RTT:       rttInfo,
+				})
+			}
+			
+			// Start new qdisc
 			parts := strings.Fields(line)
 			if len(parts) >= 5 {
 				currentInterface = parts[4]
 				currentQdisc = line
+				currentStats = ""
+				rttInfo = "N/A"
+				inQdiscBlock = true
 			}
-		} else if strings.HasPrefix(line, "Sent") || strings.HasPrefix(line, "backlog") {
-			currentStats += line + "\n"
-		} else if currentInterface != "" && (strings.Contains(line, "rtt") || strings.Contains(line, "RTT")) {
-			// Extract RTT information
-			rttInfo := ws.extractRTTFromLine(line)
-			stats = append(stats, QdiscStats{
-				Interface: currentInterface,
-				Qdisc:     currentQdisc,
-				Stats:     strings.TrimSpace(currentStats),
-				RTT:       rttInfo,
-			})
-			currentInterface = ""
-			currentQdisc = ""
-			currentStats = ""
+		} else if inQdiscBlock && currentInterface != "" {
+			// Collect all lines that belong to this qdisc
+			if strings.HasPrefix(line, "Sent") || strings.HasPrefix(line, "backlog") || 
+			   strings.Contains(line, "bytes") || strings.Contains(line, "pkt") ||
+			   strings.Contains(line, "dropped") || strings.Contains(line, "overlimits") {
+				currentStats += line + "\n"
+			} else if strings.Contains(line, "target") && strings.Contains(line, "ms") {
+				// Extract RTT/target information from CAKE output
+				rttInfo = ws.extractRTTFromLine(line)
+				currentStats += line + "\n"
+			} else if strings.Contains(line, "thresh") || strings.Contains(line, "interval") ||
+			         strings.Contains(line, "pkts") || strings.Contains(line, "flows") {
+				// Include other CAKE-specific statistics
+				currentStats += line + "\n"
+			}
 		}
 	}
 
-	// Add any remaining qdisc without RTT info
+	// Add any remaining qdisc
 	if currentInterface != "" {
 		stats = append(stats, QdiscStats{
 			Interface: currentInterface,
 			Qdisc:     currentQdisc,
 			Stats:     strings.TrimSpace(currentStats),
-			RTT:       "N/A",
+			RTT:       rttInfo,
 		})
 	}
 
@@ -284,6 +321,16 @@ func (ws *WebServer) getQdiscStats() []QdiscStats {
 
 // extractRTTFromLine extracts RTT information from a tc output line
 func (ws *WebServer) extractRTTFromLine(line string) string {
+	// Look for target time which indicates the RTT setting in CAKE
+	if strings.Contains(line, "target") && strings.Contains(line, "ms") {
+		parts := strings.Fields(line)
+		for i, part := range parts {
+			if part == "target" && i+1 < len(parts) {
+				return parts[i+1]
+			}
+		}
+	}
+	// Fallback to looking for "rtt" keyword
 	if strings.Contains(line, "rtt") {
 		parts := strings.Fields(line)
 		for i, part := range parts {
