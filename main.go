@@ -48,7 +48,7 @@ func DefaultConfig() *Config {
 		TCPConnectTimeout:   3,
 		MaxConcurrentProbes: 50,
 		WebEnabled:          true,
-		WebPort:             80,
+		WebPort:             11111,
 	}
 }
 

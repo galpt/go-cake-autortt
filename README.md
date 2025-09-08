@@ -52,7 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.
 curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.sh | ash
 ```
 
-After installation, access the web interface at: `http://your-router-ip/cake-autortt`
+After installation, access the web interface at: `http://your-router-ip:11111/cake-autortt`
 
 ### Manual Installation
 
@@ -114,7 +114,7 @@ config cake-autortt 'global'
     option dl_interface 'ifb-wan'         # Download interface (auto-detect if empty)
     option ul_interface 'wan'             # Upload interface (auto-detect if empty)
     option web_enabled '1'                # Enable web interface
-    option web_port '80'                  # Web interface port
+    option web_port '11111'               # Web interface port
     option debug '0'                      # Enable debug logging
     option tcp_connect_timeout '3'        # TCP connection timeout (seconds)
     option max_concurrent_probes '50'     # Maximum concurrent RTT probes
@@ -141,7 +141,7 @@ sudo cake-autortt
 sudo cake-autortt --config /path/to/config
 
 # Run with custom web port
-sudo cake-autortt --web-port 8080
+sudo cake-autortt --web-port 11111
 
 # Disable web interface
 sudo cake-autortt --web-enabled=false
@@ -199,7 +199,7 @@ sudo systemctl status cake-autortt
 ### Web Interface (Recommended)
 
 The easiest way to monitor cake-autortt is through the web interface:
-- Navigate to `http://your-router-ip/cake-autortt`
+- Navigate to `http://your-router-ip:11111/cake-autortt`
 - View real-time system status, RTT measurements, and logs
 - Monitor CAKE qdisc statistics with live updates
 - No need to SSH into the router for basic monitoring

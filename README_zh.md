@@ -58,9 +58,9 @@ curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.
 - 安装配置文件
 - 设置并启动服务
 - 配置开机自启动
-- 在80端口启用Web界面
+- 在11111端口启用Web界面
 
-安装完成后，通过以下地址访问Web界面：`http://路由器IP/cake-autortt`
+安装完成后，通过以下地址访问Web界面：`http://路由器IP:11111/cake-autortt`
 
 ### 手动安装
 
@@ -122,7 +122,7 @@ config cake-autortt 'global'
     option dl_interface 'ifb-wan'         # 下载接口（空则自动检测）
     option ul_interface 'wan'             # 上传接口（空则自动检测）
     option web_enabled '1'                # 启用Web界面
-    option web_port '80'                  # Web界面端口
+    option web_port '11111'               # Web界面端口
     option debug '0'                      # 启用调试日志
     option tcp_connect_timeout '3'        # TCP连接超时（秒）
     option max_concurrent_probes '50'     # 最大并发RTT探测数
@@ -147,6 +147,12 @@ sudo cake-autortt
 
 # 使用自定义配置文件运行
 sudo cake-autortt --config /path/to/config
+
+# 使用自定义Web端口运行
+sudo cake-autortt --web-port 11111
+
+# 禁用Web界面
+sudo cake-autortt --web-enabled=false
 
 # 启用调试模式
 sudo cake-autortt --debug
@@ -199,7 +205,7 @@ sudo systemctl status cake-autortt
 ### Web界面
 
 服务运行后，可通过Web界面访问：
-- **网址**: `http://路由器IP/cake-autortt`（默认80端口）
+- **网址**: `http://路由器IP:11111/cake-autortt`（默认11111端口）
 - **功能**:
   - 实时系统状态监控
   - 实时CAKE qdisc统计信息（`tc -s qdisc`）
@@ -212,7 +218,7 @@ sudo systemctl status cake-autortt
 ### Web界面（推荐）
 
 监控cake-autortt最简单的方法是通过Web界面：
-- 导航到 `http://路由器IP/cake-autortt`
+- 导航到 `http://路由器IP:11111/cake-autortt`
 - 查看实时系统状态、RTT测量和日志
 - 监控CAKE qdisc统计信息的实时更新
 - 无需SSH到路由器进行基本监控

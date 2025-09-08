@@ -20,7 +20,7 @@ debug=0                  # enable debug logging
 tcp_connect_timeout=3    # TCP connection timeout for RTT measurement
 max_concurrent_probes=50 # maximum concurrent TCP probes
 web_enabled=1            # enable web server
-web_port=80              # web server port
+web_port=11111           # web server port
 
 validate_cake_autortt_section() {
 	uci_load_validate cake-autortt cake-autortt "$1" "$2" \
@@ -35,7 +35,7 @@ validate_cake_autortt_section() {
 		'tcp_connect_timeout:uinteger:3' \
 		'max_concurrent_probes:uinteger:50' \
 		'web_enabled:bool:1' \
-		'web_port:uinteger:80'
+		'web_port:uinteger:11111'
 }
 
 load_config() {

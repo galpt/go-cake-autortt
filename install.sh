@@ -193,7 +193,7 @@ config cake-autortt 'global'
 	option tcp_connect_timeout '3'
 	option max_concurrent_probes '50'
 	option web_enabled '1'
-	option web_port '80'
+	option web_port '11111'
 EOF
         log_success "Configuration file created at /etc/config/$SERVICE_NAME"
         log_warning "Please edit /etc/config/$SERVICE_NAME to configure your interfaces"
@@ -299,7 +299,7 @@ main() {
     log_success "Installation completed successfully!"
     log_info "Please edit /etc/config/$SERVICE_NAME to configure your network interfaces"
     log_info "Then restart the service with: /etc/init.d/$SERVICE_NAME restart"
-    log_info "Web interface will be available at: http://localhost:80/cake-autortt"
+    log_info "Web interface will be available at: http://localhost:11111/cake-autortt"
 }
 
 # Run main function
