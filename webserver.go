@@ -278,7 +278,7 @@ func (ws *WebServer) getQdiscStats() []QdiscStats {
 					RTT:       rttInfo,
 				})
 			}
-			
+
 			// Start new qdisc
 			parts := strings.Fields(line)
 			if len(parts) >= 5 {
@@ -290,16 +290,16 @@ func (ws *WebServer) getQdiscStats() []QdiscStats {
 			}
 		} else if inQdiscBlock && currentInterface != "" {
 			// Collect all lines that belong to this qdisc
-			if strings.HasPrefix(line, "Sent") || strings.HasPrefix(line, "backlog") || 
-			   strings.Contains(line, "bytes") || strings.Contains(line, "pkt") ||
-			   strings.Contains(line, "dropped") || strings.Contains(line, "overlimits") {
+			if strings.HasPrefix(line, "Sent") || strings.HasPrefix(line, "backlog") ||
+				strings.Contains(line, "bytes") || strings.Contains(line, "pkt") ||
+				strings.Contains(line, "dropped") || strings.Contains(line, "overlimits") {
 				currentStats += line + "\n"
 			} else if strings.Contains(line, "target") && strings.Contains(line, "ms") {
 				// Extract RTT/target information from CAKE output
 				rttInfo = ws.extractRTTFromLine(line)
 				currentStats += line + "\n"
 			} else if strings.Contains(line, "thresh") || strings.Contains(line, "interval") ||
-			         strings.Contains(line, "pkts") || strings.Contains(line, "flows") {
+				strings.Contains(line, "pkts") || strings.Contains(line, "flows") {
 				// Include other CAKE-specific statistics
 				currentStats += line + "\n"
 			}

@@ -36,13 +36,13 @@ COPY --from=builder /app/cake-autortt /usr/bin/cake-autortt
 RUN chmod +x /usr/bin/cake-autortt
 
 # Create necessary directories
-RUN mkdir -p /etc/config /var/run
+RUN mkdir -p /etc /var/run
 
-# Copy default config
-COPY etc/config/cake-autortt /etc/config/cake-autortt
+# Copy default YAML config
+COPY etc/cake-autortt.yaml /etc/cake-autortt.yaml
 
 # Set proper permissions
-RUN chown -R cake:cake /etc/config /var/run
+RUN chown -R cake:cake /etc/cake-autortt.yaml /var/run
 
 # Switch to non-root user
 USER cake
