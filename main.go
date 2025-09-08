@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	Version           = "2.0.0"
-	DefaultConfigPath = "/etc/config/cake-autortt"
+	Version           = "2.1.0"
+	DefaultConfigPath = "/etc/cake-autortt.yaml"
 )
 
 // Config represents the application configuration
@@ -53,8 +53,9 @@ func DefaultConfig() *Config {
 }
 
 var (
-	cfg     *Config
-	rootCmd = &cobra.Command{
+	cfg        *Config
+	configFile string
+	rootCmd    = &cobra.Command{
 		Use:   "cake-autortt",
 		Short: "Automatically adjust CAKE qdisc RTT parameter",
 		Long: `cake-autortt automatically monitors active network connections and adjusts
@@ -69,6 +70,9 @@ parallel processing for fast measurement of multiple hosts.`,
 
 func init() {
 	cfg = DefaultConfig()
+
+	// Config file flag
+	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "config file (default is /etc/cake-autortt.yaml)")
 
 	// Command line flags
 	rootCmd.Flags().IntVar(&cfg.RTTUpdateInterval, "rtt-update-interval", cfg.RTTUpdateInterval, "Interval between qdisc RTT updates (seconds)")
@@ -91,14 +95,19 @@ func init() {
 }
 
 func loadConfig() error {
-	// Set config file path - prioritize YAML config
-	viper.SetConfigName("cake-autortt")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath("/etc/")
-	viper.AddConfigPath(".")
-	
-	// Try the explicit YAML config file first
-	viper.SetConfigFile("/etc/cake-autortt.yaml")
+	// Use config file from the flag if provided
+	if configFile != "" {
+		viper.SetConfigFile(configFile)
+	} else {
+		// Set config file path - prioritize YAML config
+		viper.SetConfigName("cake-autortt")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath("/etc/")
+		viper.AddConfigPath(".")
+
+		// Try the explicit YAML config file first
+		viper.SetConfigFile("/etc/cake-autortt.yaml")
+	}
 
 	// Set environment variable prefix
 	viper.SetEnvPrefix("CAKE_AUTORTT")

@@ -1,0 +1,23 @@
+# cake-autortt configuration file
+# This file configures the automatic RTT adjustment for CAKE qdisc
+
+# RTT measurement settings
+rtt_update_interval: 5 # seconds between qdisc RTT updates
+min_hosts: 3 # minimum number of hosts needed for RTT calculation
+max_hosts: 100 # maximum number of hosts to probe simultaneously
+rtt_margin_percent: 10 # percentage margin added to measured RTT
+default_rtt_ms: 100 # default RTT in case no hosts are available
+tcp_connect_timeout: 3 # TCP connection timeout for RTT measurement
+max_concurrent_probes: 50 # maximum concurrent TCP probes
+
+# Network interfaces
+# Leave empty for auto-detection
+dl_interface: "" # download interface (e.g., "ifb-wan")
+ul_interface: "" # upload interface (e.g., "eth0")
+
+# Logging
+debug: false # enable debug logging
+
+# Web interface
+web_enabled: true # enable web server
+web_port: 11111 # web server port

@@ -7,19 +7,22 @@
 
 **Languages:** [English](README.md) | [中文](README_zh.md)
 
+**OpenWrt Guide:** [English](README_OpenWrt.md) | [中文](README_OpenWrt_zh.md)
+
 A high-performance Go rewrite of the original shell-based `cake-autortt` tool. This service automatically adjusts CAKE qdisc RTT parameters based on real-time network measurements, providing optimal bufferbloat control for dynamic network conditions.
 
 ## 🚀 Features
 
 - **High Performance**: Go implementation with concurrent TCP-based RTT measurements
 - **Smart Host Discovery**: Automatically extracts active hosts from conntrack
-- **Interface Auto-Detection**: Automatically detects CAKE-enabled interfaces
+- **Interface Auto-Detection**: Automatically detects CAKE-enabled interfaces during installation
 - **Real-time Web Interface**: Dark-themed web UI for monitoring system status and logs
 - **WebSocket Support**: Live updates without manual page refresh
 - **Configurable Thresholds**: Flexible min/max host limits and RTT margins
 - **Multiple Deployment Options**: Native binary, Docker, or OpenWrt package
 - **Real-time Monitoring**: Debug mode with detailed logging
 - **Production Ready**: Comprehensive error handling and graceful shutdown
+- **Zero-Touch Installation**: Fully automated setup with service management
 
 ## 📋 Requirements
 
@@ -38,23 +41,42 @@ A high-performance Go rewrite of the original shell-based `cake-autortt` tool. T
 
 ## 🔧 Installation
 
-### Quick Install (Recommended)
+### Automated Installation (Recommended)
+
+The installation script provides a **zero-touch experience** - it automatically:
+- Downloads and installs the binary
+- Creates optimized YAML configuration with auto-detected interfaces
+- Sets up system service (OpenWrt init.d or systemd)
+- Enables automatic startup on boot
+- Starts the service immediately
 
 **For most Linux distributions:**
 ```bash
-# Download and run the installation script
+# One-command installation with full automation
 curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.sh | sudo bash
 ```
 
 **For OpenWrt (run as root, no sudo needed):**
 ```bash
-# Download and run the installation script directly as root
+# One-command installation for OpenWrt
 curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.sh | ash
 ```
 
-After installation, access the web interface at: `http://your-router-ip:11111/cake-autortt`
+**What happens during installation:**
+1. ✅ Checks system dependencies (`tc`, `wget`/`curl`)
+2. ✅ Downloads the correct binary for your architecture
+3. ✅ Installs binary to `/usr/bin/cake-autortt`
+4. ✅ Creates `/etc/cake-autortt.yaml` with auto-detected CAKE interfaces
+5. ✅ Installs appropriate service (init.d for OpenWrt, systemd for others)
+6. ✅ Enables service for automatic startup
+7. ✅ Starts the service immediately
+8. ✅ Displays service management commands and web interface URL
+
+After installation, access the web interface at: `http://your-router-ip:11111`
 
 ### Manual Installation
+
+If you prefer manual installation:
 
 1. **Download the latest release:**
    ```bash
@@ -63,23 +85,41 @@ After installation, access the web interface at: `http://your-router-ip:11111/ca
    sudo install -m 755 cake-autortt-linux-amd64 /usr/bin/cake-autortt
    ```
 
-2. **Create configuration files:**
+2. **Create configuration file:**
    ```bash
-   # Create UCI format config (for OpenWrt compatibility)
-   sudo mkdir -p /etc/config
-   sudo wget https://raw.githubusercontent.com/galpt/go-cake-autortt/main/etc/config/cake-autortt -O /etc/config/cake-autortt
+   sudo tee /etc/cake-autortt.yaml > /dev/null << EOF
+   # RTT measurement settings
+   rtt_update_interval: 5
+   min_hosts: 3
+   max_hosts: 100
+   rtt_margin_percent: 10
+   default_rtt_ms: 100
+   tcp_connect_timeout: 3
+   max_concurrent_probes: 50
    
-   # Create YAML format config (for direct binary usage)
-   sudo wget https://raw.githubusercontent.com/galpt/go-cake-autortt/main/cake-autortt.yaml.template -O /etc/cake-autortt.yaml
+   # Network interfaces (configure your CAKE interfaces)
+   dl_interface: ""  # e.g., "ifb-wan" for download
+   ul_interface: ""  # e.g., "wan" for upload
+   
+   # Web interface
+   web_enabled: true
+   web_port: 11111
+   
+   # Logging
+   debug: false
+   EOF
    ```
 
-3. **Edit configuration:**
+3. **Configure interfaces:**
    ```bash
-   # Edit UCI config (if using with OpenWrt service)
-   sudo nano /etc/config/cake-autortt
-   
-   # Or edit YAML config (if running binary directly)
+   # Edit the config to set your CAKE interfaces
    sudo nano /etc/cake-autortt.yaml
+   ```
+
+4. **Run manually or set up service:**
+   ```bash
+   # Test run
+   sudo cake-autortt --config /etc/cake-autortt.yaml
    ```
 
 ### Docker Installation
@@ -88,99 +128,75 @@ After installation, access the web interface at: `http://your-router-ip:11111/ca
 # Pull the image
 docker pull arasseo/go-cake-autortt:latest
 
+# Create config file
+mkdir -p ./config
+wget https://raw.githubusercontent.com/galpt/go-cake-autortt/main/etc/cake-autortt.yaml -O ./config/cake-autortt.yaml
+
 # Run with host networking (required for interface access)
 docker run -d --name cake-autortt \
   --network host \
   --privileged \
+  -v $(pwd)/config/cake-autortt.yaml:/etc/cake-autortt.yaml:ro \
   -v /proc/net/nf_conntrack:/proc/net/nf_conntrack:ro \
   arasseo/go-cake-autortt:latest
 ```
 
-### OpenWrt Package Installation
-
-```bash
-# Add the repository (if available)
-opkg update
-opkg install go-cake-autortt
-
-# Or install manually
-wget https://github.com/galpt/go-cake-autortt/releases/latest/download/go-cake-autortt_2.0.0_mips.ipk
-opkg install go-cake-autortt_2.0.0_mips.ipk
-```
-
 ## ⚙️ Configuration
 
-The application supports two configuration formats:
+The application uses **YAML configuration only** (simplified from previous UCI+YAML approach).
 
-### OpenWrt UCI Format (for service usage)
-
-Edit `/etc/config/cake-autortt`:
-
-```bash
-config cake-autortt 'global'
-    option rtt_update_interval '5'        # RTT measurement interval (seconds)
-    option min_hosts '3'                  # Minimum hosts for RTT calculation
-    option max_hosts '100'                # Maximum hosts to probe
-    option rtt_margin_percent '10'        # Safety margin percentage
-    option default_rtt_ms '100'           # Default RTT when no measurements
-    option dl_interface 'ifb-wan'         # Download interface (auto-detect if empty)
-    option ul_interface 'wan'             # Upload interface (auto-detect if empty)
-    option web_enabled '1'                # Enable web interface
-    option web_port '11111'               # Web interface port
-    option debug '0'                      # Enable debug logging
-    option tcp_connect_timeout '3'        # TCP connection timeout (seconds)
-    option max_concurrent_probes '50'     # Maximum concurrent RTT probes
-```
-
-### YAML Format (for direct binary usage)
-
-Edit `/etc/cake-autortt.yaml`:
+### Configuration File: `/etc/cake-autortt.yaml`
 
 ```yaml
-rtt_update_interval: 5        # RTT measurement interval (seconds)
-min_hosts: 3                  # Minimum hosts for RTT calculation
-max_hosts: 100                # Maximum hosts to probe
-rtt_margin_percent: 10        # Safety margin percentage
-default_rtt_ms: 100           # Default RTT when no measurements
-dl_interface: ""              # Download interface (auto-detect if empty)
-ul_interface: ""              # Upload interface (auto-detect if empty)
-web_enabled: true             # Enable web interface
-web_port: 11111               # Web interface port
-debug: false                  # Enable debug logging
-tcp_connect_timeout: 3        # TCP connection timeout (seconds)
-max_concurrent_probes: 50     # Maximum concurrent RTT probes
-```
+# RTT measurement settings
+rtt_update_interval: 5        # seconds between qdisc RTT updates
+min_hosts: 3                  # minimum number of hosts needed for RTT calculation
+max_hosts: 100                # maximum number of hosts to probe simultaneously
+rtt_margin_percent: 10        # percentage margin added to measured RTT
+default_rtt_ms: 100           # default RTT in case no hosts are available
+tcp_connect_timeout: 3        # TCP connection timeout for RTT measurement
+max_concurrent_probes: 50     # maximum concurrent TCP probes
 
-**Note:** The install script automatically creates both configuration files. OpenWrt service uses UCI format with command-line parameters, while direct binary execution uses YAML format.
+# Network interfaces (auto-detected during installation)
+dl_interface: "ifb-wan"       # download interface with CAKE qdisc
+ul_interface: "wan"           # upload interface with CAKE qdisc
+
+# Logging
+debug: false                  # enable debug logging
+
+# Web interface
+web_enabled: true             # enable web server
+web_port: 11111               # web server port
+```
 
 ### Interface Configuration
 
-**Auto-detection (Recommended):**
-Leave `dl_interface` and `ul_interface` empty for automatic detection.
+**Auto-detection (Default):**
+The installation script automatically detects interfaces with CAKE qdisc and configures them.
 
 **Manual Configuration:**
 - `dl_interface`: Usually `ifb-wan` or similar IFB interface for download shaping
 - `ul_interface`: Usually `wan`, `eth1`, or your WAN interface for upload shaping
+
+**To find your CAKE interfaces:**
+```bash
+# List all interfaces with CAKE qdisc
+tc qdisc show | grep cake
+```
 
 ## 🎯 Usage
 
 ### Command Line Options
 
 ```bash
-# Run with default config (includes web server)
+# Run with default config
 sudo cake-autortt
 
 # Run with custom config file
-sudo cake-autortt --config /path/to/config
+sudo cake-autortt --config /path/to/config.yaml
 
-# Run with custom web port
-sudo cake-autortt --web-port 11111
-
-# Disable web interface
-sudo cake-autortt --web-enabled=false
-
-# Enable debug mode
-sudo cake-autortt --debug
+# Override config options
+sudo cake-autortt --web-port 8080 --debug
 
 # Show version
 cake-autortt --version
@@ -191,68 +207,70 @@ cake-autortt --help
 
 ### Service Management
 
+The automated installation sets up the service for you. Here are the management commands:
+
 **OpenWrt:**
 ```bash
-# Start service
+# Service management
 /etc/init.d/cake-autortt start
-
-# Stop service
 /etc/init.d/cake-autortt stop
-
-# Restart service
 /etc/init.d/cake-autortt restart
-
-# Enable auto-start
-/etc/init.d/cake-autortt enable
-
-# Check status
 /etc/init.d/cake-autortt status
+
+# View logs
+logread | grep cake-autortt
 ```
 
-**Systemd:**
+**Systemd (Ubuntu, Debian, etc.):**
 ```bash
-# Start service
+# Service management
 sudo systemctl start cake-autortt
-
-# Stop service
 sudo systemctl stop cake-autortt
-
-# Restart service
 sudo systemctl restart cake-autortt
-
-# Enable auto-start
-sudo systemctl enable cake-autortt
-
-# Check status
 sudo systemctl status cake-autortt
+
+# View logs
+sudo journalctl -u cake-autortt -f
+```
+
+### Configuration Changes
+
+After modifying `/etc/cake-autortt.yaml`, restart the service:
+
+```bash
+# OpenWrt
+/etc/init.d/cake-autortt restart
+
+# Systemd
+sudo systemctl restart cake-autortt
 ```
 
 ## 📊 Monitoring
 
 ### Web Interface (Recommended)
 
-The easiest way to monitor cake-autortt is through the web interface:
-- Navigate to `http://your-router-ip:11111/cake-autortt`
+The easiest way to monitor cake-autortt:
+- Navigate to `http://your-router-ip:11111`
 - View real-time system status, RTT measurements, and logs
 - Monitor CAKE qdisc statistics with live updates
 - No need to SSH into the router for basic monitoring
 
 ### Command Line Monitoring
 
-Enable debug mode to see detailed operation logs:
+Enable debug mode for detailed operation logs:
 
 ```bash
-# Temporary debug mode
-sudo cake-autortt --debug
+# Edit config file
+sudo nano /etc/cake-autortt.yaml
+# Set: debug: true
 
-# Or edit config file
-sudo nano /etc/config/cake-autortt
-# Set: option debug '1'
+# Restart service
+sudo systemctl restart cake-autortt  # or /etc/init.d/cake-autortt restart
 ```
 
 Example debug output:
 ```
-2024/01/15 10:30:15 [INFO] Starting cake-autortt v2.0.0
+2024/01/15 10:30:15 [INFO] Starting cake-autortt v2.1.0
 2024/01/15 10:30:15 [INFO] Auto-detected interfaces: dl=ifb-wan, ul=wan
 2024/01/15 10:30:15 [INFO] Extracted 45 hosts from conntrack
 2024/01/15 10:30:18 [INFO] Measured RTT: avg=25ms, worst=45ms (from 12 responsive hosts)
@@ -263,56 +281,65 @@ Example debug output:
 
 ### Common Issues
 
-**1. No CAKE interfaces found:**
+**1. Service not starting after installation:**
+```bash
+# Check service status
+systemctl status cake-autortt  # or /etc/init.d/cake-autortt status
+
+# Check configuration
+sudo cake-autortt --config /etc/cake-autortt.yaml --debug
+```
+
+**2. No CAKE interfaces detected:**
 ```bash
 # Check if CAKE qdisc is configured
-sudo tc qdisc show
+sudo tc qdisc show | grep cake
 
 # Configure CAKE on interface (example)
 sudo tc qdisc add dev wan root cake bandwidth 100mbit
 ```
 
-**2. Permission denied:**
+**3. Web interface not accessible:**
 ```bash
-# Ensure running as root
-sudo cake-autortt
+# Check if service is running
+sudo systemctl status cake-autortt
 
-# Check file permissions
-ls -la /usr/bin/cake-autortt
+# Check firewall (if applicable)
+sudo ufw allow 11111  # Ubuntu/Debian
 ```
 
-**3. No conntrack file:**
+**4. Permission denied:**
 ```bash
-# Check if conntrack is available
-ls -la /proc/net/nf_conntrack
+# Ensure binary has correct permissions
+sudo chmod 755 /usr/bin/cake-autortt
 
-# Enable conntrack if missing
-sudo modprobe nf_conntrack
-```
-
-**4. TCP connection timeouts:**
-```bash
-# Increase timeout in config
-option tcp_connect_timeout '5'
-
-# Reduce concurrent probes
-option max_concurrent_probes '25'
+# Check config file permissions
+sudo chmod 644 /etc/cake-autortt.yaml
 ```
 
 ### Debug Commands
 
 ```bash
+# Test configuration
+sudo cake-autortt --config /etc/cake-autortt.yaml --debug
+
 # Check current CAKE settings
 sudo tc qdisc show | grep cake
-
-# Monitor RTT changes
-sudo cake-autortt --debug | grep "Adjusted CAKE RTT"
 
 # Check active connections
 sudo cat /proc/net/nf_conntrack | head -10
 
-# Test TCP connectivity
-sudo cake-autortt --debug | grep "TCP probe"
+# Verify interfaces
+ip link show
+```
+
+### Reinstallation
+
+If you encounter issues, you can safely reinstall:
+
+```bash
+# The script will backup existing config and reinstall
+curl -fsSL https://raw.githubusercontent.com/galpt/go-cake-autortt/main/install.sh | sudo bash
 ```
 
 ## 🏗️ Building from Source
@@ -352,7 +379,6 @@ make build-all
 - `linux/mipsle` - MIPS Little Endian
 - `linux/mips64` - MIPS64
 - `linux/mips64le` - MIPS64 Little Endian
-- `freebsd/amd64` - FreeBSD x86_64
 
 ## 🤝 Contributing
 
@@ -382,13 +408,13 @@ This project is licensed under the GNU General Public License v2.0 - see the [LI
 
 ## 🙏 Acknowledgments
 
-
 - OpenWrt community for CAKE qdisc development
 - Go community for excellent networking libraries
 
 ## 📞 Support
 
 - **Issues**: [GitHub Issues](https://github.com/galpt/go-cake-autortt/issues)
+- **Documentation**: [OpenWrt Installation Guide](README_OpenWrt.md)
 
 ## 🔗 Related Projects
 

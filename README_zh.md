@@ -7,6 +7,8 @@
 
 **语言:** [English](README.md) | [中文](README_zh.md)
 
+**OpenWrt 指南:** [English](README_OpenWrt.md) | [中文](README_OpenWrt_zh.md)
+
 原始基于shell的`cake-autortt`工具的高性能Go重写版本。该服务基于实时网络测量自动调整CAKE qdisc RTT参数，为动态网络条件提供最佳的缓冲区膨胀控制。
 
 ## 🚀 特性
