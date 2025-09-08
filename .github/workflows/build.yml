@@ -1,4 +1,4 @@
-name: Build Multi-Architecture Binaries
+name: Build Multi-Architecture Binaries and Push to Releases
 
 on:
   push:
