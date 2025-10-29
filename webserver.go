@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"math"
 	"net/http"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -299,8 +302,8 @@ func (ws *WebServer) getQdiscStats() []QdiscStats {
 				strings.Contains(line, "bytes") || strings.Contains(line, "pkt") ||
 				strings.Contains(line, "dropped") || strings.Contains(line, "overlimits") {
 				currentStats += line + "\n"
-			} else if strings.Contains(line, "interval") && strings.Contains(line, "ms") {
-				// Extract RTT/interval information from CAKE output
+			} else if strings.Contains(line, "interval") {
+				// Extract RTT/interval information from CAKE output (support us, ms, s)
 				rttInfo = ws.extractRTTFromLine(line)
 				currentStats += line + "\n"
 			} else if strings.Contains(line, "thresh") || strings.Contains(line, "target") ||
@@ -326,25 +329,59 @@ func (ws *WebServer) getQdiscStats() []QdiscStats {
 
 // extractRTTFromLine extracts RTT information from a tc output line
 func (ws *WebServer) extractRTTFromLine(line string) string {
-	// Look for interval time which indicates the RTT setting in CAKE
-	if strings.Contains(line, "interval") && strings.Contains(line, "ms") {
-		parts := strings.Fields(line)
-		for i, part := range parts {
-			if part == "interval" && i+1 < len(parts) {
-				return parts[i+1]
-			}
+	// Find candidate token after 'interval' or 'rtt'
+	parts := strings.Fields(line)
+	var candidate string
+	for i, part := range parts {
+		if part == "interval" && i+1 < len(parts) {
+			candidate = strings.Trim(parts[i+1], ",;")
+			break
 		}
 	}
-	// Fallback to looking for "rtt" keyword
-	if strings.Contains(line, "rtt") {
-		parts := strings.Fields(line)
+	if candidate == "" {
 		for i, part := range parts {
 			if part == "rtt" && i+1 < len(parts) {
-				return parts[i+1]
+				candidate = strings.Trim(parts[i+1], ",;")
+				break
 			}
 		}
 	}
-	return "N/A"
+	if candidate == "" {
+		return "N/A"
+	}
+
+	// Parse numeric value and unit (supports floats) - e.g. 1.42s, 100ms, 500us
+	re := regexp.MustCompile(`^([0-9]*\.?[0-9]+)(us|ms|s)?$`)
+	matches := re.FindStringSubmatch(candidate)
+	if len(matches) < 2 {
+		// couldn't parse, return raw candidate
+		return candidate
+	}
+
+	valStr := matches[1]
+	unit := matches[2]
+	v, err := strconv.ParseFloat(valStr, 64)
+	if err != nil {
+		return candidate
+	}
+
+	switch unit {
+	case "us":
+		// microseconds -> milliseconds
+		ms := v / 1000.0
+		if ms < 1.0 {
+			// keep in microseconds for precision
+			return fmt.Sprintf("%dus", int(math.Round(v)))
+		}
+		return fmt.Sprintf("%dms", int(math.Round(ms)))
+	case "", "ms":
+		return fmt.Sprintf("%dms", int(math.Round(v)))
+	case "s":
+		ms := v * 1000.0
+		return fmt.Sprintf("%dms", int(math.Round(ms)))
+	default:
+		return candidate
+	}
 }
 
 // getRecentLogs returns recent log messages
