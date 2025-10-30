@@ -93,6 +93,7 @@ func (ws *WebServer) Start() error {
 	api := r.Group("/api")
 	{
 		api.GET("/status", ws.handleStatus)
+		api.GET("/probes", ws.handleProbes)
 		api.GET("/qdisc", ws.handleQdiscStats)
 		api.GET("/logs", ws.handleLogs)
 	}
@@ -133,6 +134,16 @@ func (ws *WebServer) handleLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, logs)
 }
 
+// handleProbes returns the current probe statuses
+func (ws *WebServer) handleProbes(c *gin.Context) {
+	if ws.service == nil {
+		c.JSON(http.StatusOK, []ProbeStatus{})
+		return
+	}
+	probes := ws.service.GetCurrentProbes()
+	c.JSON(http.StatusOK, probes)
+}
+
 // handleWebSocket handles WebSocket connections for real-time updates
 func (ws *WebServer) handleWebSocket(c *gin.Context) {
 	conn, err := ws.upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -152,9 +163,9 @@ func (ws *WebServer) handleWebSocket(c *gin.Context) {
 		ws.clientMu.Unlock()
 	}()
 
-	// Send initial status
-	status := ws.getSystemStatus()
-	if err := conn.WriteJSON(status); err != nil {
+	// Send initial rich status (includes config and probes)
+	rich := ws.getRichStatus()
+	if err := conn.WriteJSON(rich); err != nil {
 		log.Printf("[ERROR] Failed to send initial status: %v", err)
 		return
 	}
@@ -179,8 +190,8 @@ func (ws *WebServer) broadcastUpdates() {
 	for {
 		select {
 		case <-ticker.C:
-			status := ws.getSystemStatus()
-			ws.broadcastToClients(status)
+			rich := ws.getRichStatus()
+			ws.broadcastToClients(rich)
 		case logMsg := <-ws.logChan:
 			// Broadcast new log message immediately
 			ws.broadcastToClients(map[string]interface{}{
@@ -227,9 +238,44 @@ func (ws *WebServer) getSystemStatus() WebSystemStatus {
 				break // Just show the first one for now
 			}
 		}
+		// keep /api/status simple; richer payloads (config + probes) are sent via WebSocket
 	}
 
 	return status
+}
+
+// getRichStatus returns a richer status payload suitable for WebSocket clients
+func (ws *WebServer) getRichStatus() map[string]interface{} {
+	status := ws.getSystemStatus()
+	result := map[string]interface{}{
+		"type":           "status",
+		"timestamp":      status.Timestamp,
+		"service_status": status.ServiceStatus,
+		"active_hosts":   status.ActiveHosts,
+		"current_rtt":    status.CurrentRTT,
+		"qdisc_stats":    status.QdiscStats,
+		"recent_logs":    status.RecentLogs,
+		"config": map[string]interface{}{
+			"rtt_update_interval": ws.config.RTTUpdateInterval,
+			"min_hosts":           ws.config.MinHosts,
+			"max_hosts":           ws.config.MaxHosts,
+			"rtt_margin_percent":  ws.config.RTTMarginPercent,
+		},
+	}
+
+	if ws.service != nil {
+		result["probes"] = ws.service.GetCurrentProbes()
+	} else {
+		result["probes"] = []ProbeStatus{}
+	}
+	if ws.service != nil {
+		// provide completed probes with timestamps for UI
+		result["completed_probes"] = ws.service.GetRecentCompletedProbesWithTime()
+	} else {
+		result["completed_probes"] = []map[string]interface{}{}
+	}
+
+	return result
 }
 
 // getQdiscStats returns current qdisc statistics
@@ -386,8 +432,21 @@ func (ws *WebServer) extractRTTFromLine(line string) string {
 
 // getRecentLogs returns recent log messages
 func (ws *WebServer) getRecentLogs() []LogMessage {
-	// This is a simplified implementation
-	// In a real implementation, you might want to store logs in a circular buffer
+	// Prefer service-provided logs when available
+	if ws.service != nil {
+		entries := ws.service.GetRecentLogs()
+		out := make([]LogMessage, 0, len(entries))
+		for _, e := range entries {
+			out = append(out, LogMessage{
+				Timestamp: e.Timestamp.Format("15:04:05"),
+				Level:     e.Level,
+				Message:   e.Message,
+			})
+		}
+		return out
+	}
+
+	// Fallback
 	return []LogMessage{
 		{
 			Timestamp: time.Now().Local().Format("15:04:05"),

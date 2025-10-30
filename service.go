@@ -26,6 +26,23 @@ type CakeAutoRTTService struct {
 	cancel      context.CancelFunc
 	recentLogs  []LogEntry
 	logMutex    sync.RWMutex
+	// probe tracking
+	probeMutex    sync.RWMutex
+	currentProbes map[string]ProbeStatus
+	// injectable probe function for testing (host, timeoutSec) -> (rtt, error)
+	ProbeFunc func(host string, timeoutSec int) (time.Duration, error)
+	// adaptive worker cap managed by background controller
+	adaptiveWorkers int
+	// completed probes buffer (recent finished probes for UI). protected by probeMutex
+	completedProbes []CompletedProbe
+	// how long to keep completed probes in seconds
+	completedRetentionSec int
+	// max completed entries to retain
+	completedMaxEntries int
+	// cpuReader is injectable for tests; returns total,idle or error
+	cpuReader func() (uint64, uint64, error)
+	// cpu sampling interval used by adaptive controller (injectable for tests)
+	cpuSampleInterval time.Duration
 }
 
 // LogEntry represents a log entry
@@ -53,18 +70,86 @@ type RTTMeasurement struct {
 	Err  error
 }
 
+// ProbeStatus represents the current state of a probe for the UI
+type ProbeStatus struct {
+	Host  string `json:"host"`
+	Stage string `json:"stage"`
+	RTTMs int    `json:"rtt_ms,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// CompletedProbe holds a probe result with a timestamp for time-based retention
+type CompletedProbe struct {
+	Probe ProbeStatus
+	When  time.Time
+}
+
 // NewCakeAutoRTTService creates a new service instance
 func NewCakeAutoRTTService(config *Config) (*CakeAutoRTTService, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	service := &CakeAutoRTTService{
-		config:     config,
-		running:    false,
-		lastRTT:    make(map[string]int),
-		lastUpdate: time.Now().Local(),
-		ctx:        ctx,
-		cancel:     cancel,
-		recentLogs: make([]LogEntry, 0, 100),
+		config:        config,
+		running:       false,
+		lastRTT:       make(map[string]int),
+		lastUpdate:    time.Now().Local(),
+		ctx:           ctx,
+		cancel:        cancel,
+		recentLogs:    make([]LogEntry, 0, 100),
+		currentProbes: make(map[string]ProbeStatus),
 	}
+
+	// default probe function uses the internal TCP probe implementation
+	service.ProbeFunc = func(h string, timeoutSec int) (time.Duration, error) {
+		return service.measureSingleHostTCP(h, timeoutSec)
+	}
+
+	// initialize adaptive worker cap to configured max
+	service.mutex.RLock()
+	service.adaptiveWorkers = service.config.MaxConcurrentProbes
+	service.mutex.RUnlock()
+
+	// setup completed probes retention defaults
+	service.completedRetentionSec = 5 // keep completed probes visible for 5s by default
+	service.completedMaxEntries = 50  // keep up to 50 completed entries
+
+	// Start adaptive controller in background (best-effort; will no-op if /proc not available)
+	if service.config.AdaptiveControllerEnabled {
+		// default cpu reader reads /proc/stat
+		service.cpuReader = func() (uint64, uint64, error) {
+			data, err := os.ReadFile("/proc/stat")
+			if err != nil {
+				return 0, 0, err
+			}
+			lines := strings.Split(string(data), "\n")
+			if len(lines) == 0 {
+				return 0, 0, fmt.Errorf("unexpected /proc/stat format")
+			}
+			fields := strings.Fields(lines[0])
+			if len(fields) < 5 || fields[0] != "cpu" {
+				return 0, 0, fmt.Errorf("unexpected /proc/stat format")
+			}
+			var total uint64
+			var idle uint64
+			for i := 1; i < len(fields); i++ {
+				var v uint64
+				_, err := fmt.Sscan(fields[i], &v)
+				if err != nil {
+					return 0, 0, err
+				}
+				total += v
+				if i == 4 {
+					idle = v
+				}
+			}
+			return total, idle, nil
+		}
+		// default sample interval
+		service.cpuSampleInterval = 2 * time.Second
+		go service.startAdaptiveController()
+	}
+
+	// Start a background goroutine to prune completed probes periodically
+	go service.startCompletedPruner()
 
 	// Auto-detect interfaces if not specified
 	if err := service.autoDetectInterfaces(); err != nil {
@@ -190,11 +275,15 @@ func (s *CakeAutoRTTService) extractHostsFromConntrack() ([]string, error) {
 		return nil, fmt.Errorf("error reading conntrack: %w", err)
 	}
 
-	// Convert to slice and limit to max hosts
+	// Convert to slice and limit to max hosts (read max from config under lock)
+	s.mutex.RLock()
+	maxHosts := s.config.MaxHosts
+	s.mutex.RUnlock()
+
 	hosts := make([]string, 0, len(hostSet))
 	for host := range hostSet {
 		hosts = append(hosts, host)
-		if len(hosts) >= s.config.MaxHosts {
+		if len(hosts) >= maxHosts {
 			break
 		}
 	}
@@ -258,25 +347,61 @@ func (s *CakeAutoRTTService) measureRTTTCP(hosts []string) (float64, int, error)
 
 	s.AddLog("DEBUG", fmt.Sprintf("Measuring RTT using TCP for %d hosts", len(hosts)))
 
-	// Create a semaphore to limit concurrent connections
-	sem := make(chan struct{}, s.config.MaxConcurrentProbes)
+	// Worker-pool approach: create a bounded number of workers to avoid creating
+	// thousands of goroutines and to control the probe rate.
+	jobs := make(chan string, len(hosts))
 	results := make(chan RTTMeasurement, len(hosts))
-	var wg sync.WaitGroup
 
-	// Start measurements for all hosts
-	for _, host := range hosts {
-		wg.Add(1)
-		go func(h string) {
-			defer wg.Done()
-			sem <- struct{}{}        // Acquire semaphore
-			defer func() { <-sem }() // Release semaphore
+	// Read config under lock into local copy to avoid races while UpdateConfig runs
+	s.mutex.RLock()
+	cfg := *s.config
+	s.mutex.RUnlock()
 
-			rtt, err := s.measureSingleHostTCP(h)
-			results <- RTTMeasurement{Host: h, RTT: rtt, Err: err}
-		}(host)
+	// Determine number of workers (cap to a reasonable safety limit)
+	workers := cfg.MaxConcurrentProbes
+	if workers < 1 {
+		workers = 1
+	}
+	// Safety cap to avoid overwhelming the system
+	if workers > 500 {
+		workers = 500
 	}
 
-	// Close results channel when all goroutines complete
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(workerIdx int) {
+			defer wg.Done()
+			for h := range jobs {
+				// Mark as probing
+				s.setProbeStage(h, "probing")
+
+				// Use injected probe function (defaults to internal TCP probe) so tests can mock it.
+				rtt, err := s.ProbeFunc(h, cfg.TCPConnectTimeout)
+
+				// Record result for UI and logs
+				if err != nil {
+					s.setProbeResult(h, 0, err)
+				} else {
+					s.setProbeResult(h, int(rtt.Nanoseconds()/1e6), nil)
+				}
+
+				results <- RTTMeasurement{Host: h, RTT: rtt, Err: err}
+
+				// Small pacing to avoid synchronized bursts and excessive short-term load
+				time.Sleep(time.Millisecond * time.Duration(10+(workerIdx%10)))
+			}
+		}(i)
+	}
+
+	// Enqueue jobs
+	for _, h := range hosts {
+		s.setProbeStage(h, "queued")
+		jobs <- h
+	}
+	close(jobs)
+
+	// Close results channel when workers are done
 	go func() {
 		wg.Wait()
 		close(results)
@@ -322,12 +447,125 @@ func (s *CakeAutoRTTService) measureRTTTCP(hosts []string) (float64, int, error)
 	return worstRTT, aliveCount, nil
 }
 
+// setProbeStage sets the stage for a given probe host
+func (s *CakeAutoRTTService) setProbeStage(host, stage string) {
+	s.probeMutex.Lock()
+	defer s.probeMutex.Unlock()
+	ps := s.currentProbes[host]
+	ps.Host = host
+	ps.Stage = stage
+	ps.Error = ""
+	ps.RTTMs = 0
+	s.currentProbes[host] = ps
+}
+
+// setProbeResult records the final probe result
+func (s *CakeAutoRTTService) setProbeResult(host string, rttMs int, err error) {
+	s.probeMutex.Lock()
+	defer s.probeMutex.Unlock()
+	ps := s.currentProbes[host]
+	ps.Host = host
+	if err != nil {
+		ps.Stage = "failed"
+		ps.Error = err.Error()
+		ps.RTTMs = 0
+	} else {
+		ps.Stage = "done"
+		ps.RTTMs = rttMs
+		ps.Error = ""
+	}
+
+	// Record result transiently then remove from currentProbes to avoid unbounded map growth.
+	// The currentProbes map represents active/in-flight probes for the UI; once a probe is
+	// completed (done or failed) we remove it so the map doesn't grow indefinitely.
+	if ps.Stage == "done" || ps.Stage == "failed" {
+		// append timestamped completed probe to buffer
+		s.completedProbes = append(s.completedProbes, CompletedProbe{Probe: ps, When: time.Now()})
+		// trim if over limit
+		if len(s.completedProbes) > s.completedMaxEntries {
+			s.completedProbes = s.completedProbes[len(s.completedProbes)-s.completedMaxEntries:]
+		}
+		delete(s.currentProbes, host)
+	} else {
+		s.currentProbes[host] = ps
+	}
+}
+
+// GetCurrentProbes returns a snapshot of current probes
+func (s *CakeAutoRTTService) GetCurrentProbes() []ProbeStatus {
+	s.probeMutex.RLock()
+	defer s.probeMutex.RUnlock()
+	out := make([]ProbeStatus, 0, len(s.currentProbes))
+	for _, v := range s.currentProbes {
+		out = append(out, v)
+	}
+	return out
+}
+
+// GetRecentCompletedProbes returns a copy of recent completed probes (done/failed)
+func (s *CakeAutoRTTService) GetRecentCompletedProbes() []ProbeStatus {
+	s.probeMutex.RLock()
+	defer s.probeMutex.RUnlock()
+
+	if len(s.completedProbes) == 0 {
+		return nil
+	}
+
+	cutoff := time.Now().Add(-time.Duration(s.completedRetentionSec) * time.Second)
+	out := make([]ProbeStatus, 0, len(s.completedProbes))
+	for _, cp := range s.completedProbes {
+		if cp.When.Before(cutoff) {
+			continue
+		}
+		out = append(out, cp.Probe)
+	}
+
+	// If more than max entries (shouldn't happen due to pruning), trim to last N
+	if len(out) > s.completedMaxEntries {
+		out = out[len(out)-s.completedMaxEntries:]
+	}
+
+	return out
+}
+
+// GetRecentCompletedProbesWithTime returns recent completed probes with a formatted timestamp
+func (s *CakeAutoRTTService) GetRecentCompletedProbesWithTime() []map[string]interface{} {
+	s.probeMutex.RLock()
+	defer s.probeMutex.RUnlock()
+
+	if len(s.completedProbes) == 0 {
+		return nil
+	}
+
+	cutoff := time.Now().Add(-time.Duration(s.completedRetentionSec) * time.Second)
+	out := make([]map[string]interface{}, 0, len(s.completedProbes))
+	for _, cp := range s.completedProbes {
+		if cp.When.Before(cutoff) {
+			continue
+		}
+		entry := map[string]interface{}{
+			"host":   cp.Probe.Host,
+			"stage":  cp.Probe.Stage,
+			"rtt_ms": cp.Probe.RTTMs,
+			"error":  cp.Probe.Error,
+			"when":   cp.When.Format("15:04:05"),
+		}
+		out = append(out, entry)
+	}
+
+	if len(out) > s.completedMaxEntries {
+		out = out[len(out)-s.completedMaxEntries:]
+	}
+
+	return out
+}
+
 // measureSingleHostTCP measures RTT to a single host using TCP connection
-func (s *CakeAutoRTTService) measureSingleHostTCP(host string) (time.Duration, error) {
+func (s *CakeAutoRTTService) measureSingleHostTCP(host string, timeoutSec int) (time.Duration, error) {
 	// Try common ports in order of preference
 	ports := []string{"80", "443", "22", "21", "25", "53"}
 
-	timeout := time.Duration(s.config.TCPConnectTimeout) * time.Second
+	timeout := time.Duration(timeoutSec) * time.Second
 
 	for _, port := range ports {
 		start := time.Now()
@@ -344,8 +582,15 @@ func (s *CakeAutoRTTService) measureSingleHostTCP(host string) (time.Duration, e
 
 // adjustCakeRTT adjusts the CAKE qdisc RTT parameter
 func (s *CakeAutoRTTService) adjustCakeRTT(targetRTTMs float64) error {
+	// Read relevant config fields under lock to avoid races with UpdateConfig
+	s.mutex.RLock()
+	margin := s.config.RTTMarginPercent
+	dlIface := s.config.DLInterface
+	ulIface := s.config.ULInterface
+	s.mutex.RUnlock()
+
 	// Add margin to measured RTT
-	adjustedRTT := targetRTTMs * (1.0 + float64(s.config.RTTMarginPercent)/100.0)
+	adjustedRTT := targetRTTMs * (1.0 + float64(margin)/100.0)
 
 	// Convert to microseconds for tc command
 	rttUs := int(adjustedRTT * 1000)
@@ -358,22 +603,22 @@ func (s *CakeAutoRTTService) adjustCakeRTT(targetRTTMs float64) error {
 	s.mutex.Unlock()
 
 	// Update download interface
-	if s.config.DLInterface != "" {
-		if err := s.updateInterfaceRTT(s.config.DLInterface, rttUs); err != nil {
+	if dlIface != "" {
+		if err := s.updateInterfaceRTT(dlIface, rttUs); err != nil {
 			s.AddLog("ERROR", fmt.Sprintf("Failed to update RTT on download interface %s: %v",
-				s.config.DLInterface, err))
+				dlIface, err))
 		} else {
-			s.AddLog("DEBUG", fmt.Sprintf("Updated RTT on download interface %s", s.config.DLInterface))
+			s.AddLog("DEBUG", fmt.Sprintf("Updated RTT on download interface %s", dlIface))
 		}
 	}
 
 	// Update upload interface
-	if s.config.ULInterface != "" {
-		if err := s.updateInterfaceRTT(s.config.ULInterface, rttUs); err != nil {
+	if ulIface != "" {
+		if err := s.updateInterfaceRTT(ulIface, rttUs); err != nil {
 			s.AddLog("ERROR", fmt.Sprintf("Failed to update RTT on upload interface %s: %v",
-				s.config.ULInterface, err))
+				ulIface, err))
 		} else {
-			s.AddLog("DEBUG", fmt.Sprintf("Updated RTT on upload interface %s", s.config.ULInterface))
+			s.AddLog("DEBUG", fmt.Sprintf("Updated RTT on upload interface %s", ulIface))
 		}
 	}
 
@@ -421,16 +666,26 @@ func (s *CakeAutoRTTService) GetRecentLogs() []LogEntry {
 // GetSystemStatus returns the current system status
 func (s *CakeAutoRTTService) GetSystemStatus() SystemStatus {
 	s.mutex.RLock()
-	defer s.mutex.RUnlock()
+	// Make a copy of the config to avoid returning an internal pointer that could
+	// change under the caller when UpdateConfig runs. This keeps the API thread-safe.
+	cfgCopy := *s.config
+	running := s.running
+	lastUpdate := s.lastUpdate
+	lastRTT := make(map[string]int, len(s.lastRTT))
+	for k, v := range s.lastRTT {
+		lastRTT[k] = v
+	}
+	active := s.activeHosts
+	s.mutex.RUnlock()
 
 	return SystemStatus{
-		Running:     s.running,
-		LastUpdate:  s.lastUpdate,
-		CurrentRTT:  s.lastRTT,
-		ActiveHosts: s.activeHosts, // Use the properly tracked active hosts count
-		DLInterface: s.config.DLInterface,
-		ULInterface: s.config.ULInterface,
-		Config:      s.config,
+		Running:     running,
+		LastUpdate:  lastUpdate,
+		CurrentRTT:  lastRTT,
+		ActiveHosts: active, // Use the properly tracked active hosts count
+		DLInterface: cfgCopy.DLInterface,
+		ULInterface: cfgCopy.ULInterface,
+		Config:      &cfgCopy,
 	}
 }
 
@@ -442,6 +697,139 @@ func (s *CakeAutoRTTService) GetQdiscStats() (string, error) {
 		return "", fmt.Errorf("failed to get qdisc stats: %v", err)
 	}
 	return string(output), nil
+}
+
+// getAdaptiveWorkers returns the current adaptive worker cap
+func (s *CakeAutoRTTService) getAdaptiveWorkers() int {
+	s.mutex.RLock()
+	v := s.adaptiveWorkers
+	s.mutex.RUnlock()
+	if v < 1 {
+		return 1
+	}
+	return v
+}
+
+// setAdaptiveWorkers sets the adaptive worker cap
+func (s *CakeAutoRTTService) setAdaptiveWorkers(n int) {
+	if n < 1 {
+		n = 1
+	}
+	s.mutex.Lock()
+	s.adaptiveWorkers = n
+	s.mutex.Unlock()
+}
+
+// computeAdaptiveTarget computes a new worker target given current workers, configured max, and cpu usage
+func (s *CakeAutoRTTService) computeAdaptiveTarget(current, cfgMax int, cpuUsage float64) int {
+	target := current
+	if cpuUsage > 80.0 {
+		target = int(float64(current) * 0.7)
+		if target < 1 {
+			target = 1
+		}
+	} else if cpuUsage < 30.0 {
+		target = int(float64(current)*1.1) + 1
+		if target > cfgMax {
+			target = cfgMax
+		}
+	}
+	return target
+}
+
+// startAdaptiveController runs a background loop sampling /proc/stat and
+// adjusting the adaptive worker cap based on CPU utilization. It is a
+// lightweight, best-effort controller intended for OpenWrt and Linux.
+func (s *CakeAutoRTTService) startAdaptiveController() {
+	// sample loop using injectable cpuReader and cpuSampleInterval
+	// initial sample
+	prevTotal, prevIdle, err := s.cpuReader()
+	if err != nil {
+		return
+	}
+
+	ticker := time.NewTicker(s.cpuSampleInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+			total, idle, err := s.cpuReader()
+			if err != nil {
+				continue
+			}
+			dTotal := float64(total - prevTotal)
+			dIdle := float64(idle - prevIdle)
+			prevTotal = total
+			prevIdle = idle
+			if dTotal <= 0 {
+				continue
+			}
+			cpuUsage := (1.0 - dIdle/dTotal) * 100.0
+
+			s.mutex.RLock()
+			cfgMax := s.config.MaxConcurrentProbes
+			s.mutex.RUnlock()
+
+			current := s.getAdaptiveWorkers()
+			target := s.computeAdaptiveTarget(current, cfgMax, cpuUsage)
+
+			if target != current {
+				s.setAdaptiveWorkers(target)
+				s.AddLog("INFO", fmt.Sprintf("Adaptive controller adjusted workers: %d -> %d (cpu %.1f%%)", current, target, cpuUsage))
+			}
+		}
+	}
+}
+
+// startCompletedPruner periodically prunes old completed probe entries
+func (s *CakeAutoRTTService) startCompletedPruner() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+			s.pruneCompletedProbes()
+		}
+	}
+}
+
+// pruneCompletedProbes removes entries older than retention or over max entries
+func (s *CakeAutoRTTService) pruneCompletedProbes() {
+	s.probeMutex.Lock()
+	defer s.probeMutex.Unlock()
+	if len(s.completedProbes) == 0 {
+		return
+	}
+	// Remove entries older than retention
+	cutoff := time.Now().Add(-time.Duration(s.completedRetentionSec) * time.Second)
+	i := 0
+	for _, cp := range s.completedProbes {
+		if cp.When.After(cutoff) {
+			s.completedProbes[i] = cp
+			i++
+		}
+	}
+	s.completedProbes = s.completedProbes[:i]
+
+	// Trim by max entries if needed
+	if len(s.completedProbes) > s.completedMaxEntries {
+		cut := len(s.completedProbes) - s.completedMaxEntries
+		s.completedProbes = s.completedProbes[cut:]
+	}
+}
+
+// UpdateConfig safely updates the service configuration at runtime
+func (s *CakeAutoRTTService) UpdateConfig(newCfg *Config) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.config = newCfg
+	s.AddLog("INFO", fmt.Sprintf("Configuration reloaded: min_hosts=%d max_hosts=%d max_concurrent_probes=%d",
+		newCfg.MinHosts, newCfg.MaxHosts, newCfg.MaxConcurrentProbes))
 }
 
 // updateInterfaceRTT updates the RTT parameter for a specific interface

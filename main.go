@@ -32,23 +32,32 @@ type Config struct {
 	MaxConcurrentProbes int    `mapstructure:"max_concurrent_probes" yaml:"max_concurrent_probes"`
 	WebEnabled          bool   `mapstructure:"web_enabled" yaml:"web_enabled"`
 	WebPort             int    `mapstructure:"web_port" yaml:"web_port"`
+	// Completed probes retention (seconds)
+	CompletedRetentionSec int `mapstructure:"completed_retention_sec" yaml:"completed_retention_sec"`
+	// Max completed probes entries to keep
+	CompletedMaxEntries int `mapstructure:"completed_max_entries" yaml:"completed_max_entries"`
+	// Enable/disable adaptive controller
+	AdaptiveControllerEnabled bool `mapstructure:"adaptive_controller_enabled" yaml:"adaptive_controller_enabled"`
 }
 
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
 	return &Config{
-		RTTUpdateInterval:   5,
-		MinHosts:            3,
-		MaxHosts:            100,
-		RTTMarginPercent:    10,
-		DefaultRTTMs:        100,
-		DLInterface:         "",
-		ULInterface:         "",
-		Debug:               false,
-		TCPConnectTimeout:   3,
-		MaxConcurrentProbes: 50,
-		WebEnabled:          true,
-		WebPort:             11111,
+		RTTUpdateInterval:         5,
+		MinHosts:                  3,
+		MaxHosts:                  100,
+		RTTMarginPercent:          10,
+		DefaultRTTMs:              100,
+		DLInterface:               "",
+		ULInterface:               "",
+		Debug:                     false,
+		TCPConnectTimeout:         3,
+		MaxConcurrentProbes:       50,
+		WebEnabled:                true,
+		WebPort:                   11111,
+		CompletedRetentionSec:     5,
+		CompletedMaxEntries:       50,
+		AdaptiveControllerEnabled: true,
 	}
 }
 
@@ -160,9 +169,9 @@ func runMain(cmd *cobra.Command, args []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Set up signal handling
+	// Set up signal handling (support SIGHUP for runtime config reload)
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	// Initialize the cake autortt service
 	service, err := NewCakeAutoRTTService(cfg)
@@ -191,10 +200,30 @@ func runMain(cmd *cobra.Command, args []string) {
 		}
 	}()
 
-	// Wait for shutdown signal
-	<-sigChan
-	logMessage("INFO", "Shutting down cake-autortt")
-	cancel()
+	// Wait for signals and handle SIGHUP reloads
+	for {
+		sig := <-sigChan
+		if sig == syscall.SIGHUP {
+			// Reload configuration
+			logMessage("INFO", "Received SIGHUP, reloading configuration")
+			if err := loadConfig(); err != nil {
+				logMessage("ERROR", fmt.Sprintf("Failed to reload config: %v", err))
+			} else {
+				// Update running components
+				service.UpdateConfig(cfg)
+				if webServer != nil {
+					webServer.config = cfg
+				}
+				logMessage("INFO", "Configuration reloaded")
+			}
+			continue
+		}
+
+		// For INT/TERM we shutdown
+		logMessage("INFO", "Shutting down cake-autortt")
+		cancel()
+		break
+	}
 
 	// Give the service time to clean up
 	time.Sleep(1 * time.Second)
