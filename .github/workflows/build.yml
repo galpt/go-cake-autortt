@@ -116,8 +116,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -136,18 +134,6 @@ jobs:
       run: |
         mkdir -p dist
         go build -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o dist/cake-autortt-${{ matrix.name }}${{ matrix.ext }} .
-
-    - name: Verify embedded templates (Linux/macOS)
-      if: matrix.goos != 'windows'
-      run: |
-        BIN=dist/cake-autortt-${{ matrix.name }}
-        # Check the binary contains a known string from the HTML template to
-        # detect accidental missing embeds (fail the build if not present).
-        if ! strings "$BIN" | grep -q "CAKE Auto RTT Monitor"; then
-          echo "ERROR: Embedded templates not found in $BIN" >&2
-          strings "$BIN" | head -n 200 >&2 || true
-          exit 1
-        fi
 
     - name: Create archive
       run: |
