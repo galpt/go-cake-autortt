@@ -41,14 +41,48 @@ A high-performance Go rewrite of the original shell-based `cake-autortt` tool. T
 
 ## 🔧 Installation
 
+### Automated Compile Installation (Recommended)
+
+The preferred installation method is to compile and install the project locally on your device. This avoids potential issues with CI-built binaries (for example, Go embed differences across environments) and ensures the binary is built for the target system.
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/galpt/go-cake-autortt.git
+```
+
+2. Change into the repository directory:
+
+```bash
+cd go-cake-autortt
+```
+
+3. Make the install scripts executable:
+
+```bash
+chmod +x install.sh install-compile.sh uninstall.sh
+```
+
+4. Run the compile-and-install script (run as root):
+
+```bash
+# On most Linux systems
+sudo ./install-compile.sh
+
+# On OpenWrt (run as root)
+./install-compile.sh
+```
+
+The `install-compile.sh` script will attempt to ensure Go is installed, compile the local source tree, and install the resulting binary as a system service (OpenWrt init.d or systemd), creating a default YAML configuration file.
+
 ### Automated Installation (Recommended)
 
 The installation script provides a **zero-touch experience** - it automatically:
-- Downloads and installs the binary
-- Creates optimized YAML configuration with auto-detected interfaces
-- Sets up system service (OpenWrt init.d or systemd)
-- Enables automatic startup on boot
-- Starts the service immediately
+ - Downloads and installs the binary
+ - Creates optimized YAML configuration with auto-detected interfaces
+ - Sets up system service (OpenWrt init.d or systemd)
+ - Enables automatic startup on boot
+ - Starts the service immediately
 
 **For most Linux distributions:**
 ```bash

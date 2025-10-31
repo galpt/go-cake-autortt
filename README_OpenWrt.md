@@ -6,6 +6,31 @@
 
 This guide shows how to install cake-autortt on OpenWrt with **fully automated installation** and YAML configuration.
 
+## 🚀 Automated Compile Installation (Recommended)
+
+For OpenWrt we strongly recommend compiling and installing the project locally on the device. This builds the binary for the target environment and avoids potential mismatches introduced by prebuilt artifacts.
+
+1. Clone the repository on the device (or copy it over):
+
+```bash
+git clone https://github.com/galpt/go-cake-autortt.git
+cd go-cake-autortt
+```
+
+2. Make the installer scripts executable:
+
+```bash
+chmod +x install.sh install-compile.sh uninstall.sh
+```
+
+3. Run the compile-and-install script as root:
+
+```bash
+./install-compile.sh
+```
+
+The script will attempt to install Go (via `opkg` or by downloading a Go tarball when supported), compile the local source, and install the resulting binary and OpenWrt service script.
+
 ## 🚀 Automated Installation (Recommended)
 
 The easiest way to install cake-autortt on OpenWrt is using the automated installation script:

@@ -40,6 +40,35 @@
 
 ## 🔧 安装
 
+### 自动化本地编译安装（推荐）
+
+推荐在目标设备上本地编译并安装本项目。这样可以为目标环境构建二进制文件，避免预构建发行版在不同环境中引入的差异（例如 Go 的 embed 行为差异）。
+
+1. 在设备上克隆仓库（或将仓库复制到设备）：
+
+```bash
+git clone https://github.com/galpt/go-cake-autortt.git
+cd go-cake-autortt
+```
+
+2. 赋予安装脚本可执行权限：
+
+```bash
+chmod +x install.sh install-compile.sh uninstall.sh
+```
+
+3. 以 root 身份运行编译并安装脚本：
+
+```bash
+# 在大多数 Linux 系统上
+sudo ./install-compile.sh
+
+# 在 OpenWrt 上（以 root 身份运行）
+./install-compile.sh
+```
+
+`install-compile.sh` 脚本会尝试确保 Go 已安装、编译本地源码，并将生成的二进制和服务脚本安装到系统中（支持 OpenWrt init.d 或 systemd）。
+
 ### 快速安装（推荐）
 
 **对于大多数Linux发行版：**

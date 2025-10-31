@@ -6,6 +6,31 @@
 
 本指南展示如何在 OpenWrt 上安装 cake-autortt，支持**全自动安装**和 YAML 配置。
 
+## 🚀 自动化本地编译安装（推荐）
+
+我们强烈建议在 OpenWrt 设备上本地编译并安装该项目。这能为目标环境构建完全兼容的二进制文件，并避免预编译产物在不同系统上导致的问题。
+
+1. 在设备上克隆仓库或将源码复制到设备：
+
+```bash
+git clone https://github.com/galpt/go-cake-autortt.git
+cd go-cake-autortt
+```
+
+2. 赋予安装脚本可执行权限：
+
+```bash
+chmod +x install.sh install-compile.sh uninstall.sh
+```
+
+3. 以 root 身份运行编译并安装脚本：
+
+```bash
+./install-compile.sh
+```
+
+该脚本会尝试通过 `opkg` 或在支持的架构上下载 Go 二进制包来安装 Go，随后编译源码并安装生成的二进制及 OpenWrt 服务脚本。
+
 ## 🚀 自动安装（推荐）
 
 在 OpenWrt 上安装 cake-autortt 最简单的方法是使用自动安装脚本：
