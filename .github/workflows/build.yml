@@ -133,7 +133,7 @@ jobs:
         CGO_ENABLED: 0
       run: |
         mkdir -p dist
-        go build -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o dist/cake-autortt-${{ matrix.name }}${{ matrix.ext }} .
+        go build -ldflags "-X main.Version=${{ github.ref_name }}" -o dist/cake-autortt-${{ matrix.name }}${{ matrix.ext }} .
 
     - name: Create archive
       run: |
