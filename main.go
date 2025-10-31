@@ -122,13 +122,17 @@ func loadConfig() error {
 	viper.SetEnvPrefix("CAKE_AUTORTT")
 	viper.AutomaticEnv()
 
-	// Read config file if it exists
+	// Read config file if it exists. Treat "file not found" and underlying
+	// os.IsNotExist errors as non-fatal (use defaults). On some platforms
+	// (Windows) viper may return an *os.PathError which should be treated
+	// as missing file rather than a fatal config parse error.
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok || os.IsNotExist(err) {
+			// Config file not found, use defaults
+			logMessage("WARN", "Config file not found, using defaults")
+		} else {
 			return fmt.Errorf("error reading config file: %w", err)
 		}
-		// Config file not found, use defaults
-		logMessage("WARN", "Config file not found, using defaults")
 	}
 
 	// Unmarshal config

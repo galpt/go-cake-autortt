@@ -7,7 +7,9 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -81,8 +83,55 @@ func (ws *WebServer) Start() error {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	// Load embedded templates
-	tmpl := template.Must(template.New("").ParseFS(templateFS, "web/templates/*"))
+	// Load templates with the following behavior:
+	// 1. If `web/templates/*` exists on disk, prefer parsing those so users can override templates.
+	// 2. Always register embedded templates as a fallback for any missing templates (this
+	//    ensures the binary works even if the on-disk HTML is deleted).
+	var tmpl *template.Template
+
+	// Helper: register embedded templates (by base name) into tmpl if missing
+	registerEmbeddedAsBase := func(t *template.Template) error {
+		entries, err := templateFS.ReadDir("web/templates")
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			full := filepath.ToSlash(filepath.Join("web/templates", e.Name()))
+			// if the template (by base name) is missing, add it from the embedded FS
+			if t.Lookup(e.Name()) == nil {
+				b, err := templateFS.ReadFile(full)
+				if err != nil {
+					return err
+				}
+				if _, err := t.New(e.Name()).Parse(string(b)); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+
+	// Prefer disk templates if they exist
+	if _, err := os.Stat("web/templates/index.html"); err == nil {
+		// Parse on-disk templates (registers by base names)
+		t, err := template.ParseGlob("web/templates/*")
+		if err != nil {
+			// Fall back to embedded only
+			tmpl = template.Must(template.New("").ParseFS(templateFS, "web/templates/*"))
+		} else {
+			tmpl = t
+		}
+		// Ensure embedded templates fill any missing names
+		_ = registerEmbeddedAsBase(tmpl)
+	} else {
+		// No disk templates found; use embedded templates and register base names
+		tmpl = template.Must(template.New("").ParseFS(templateFS, "web/templates/*"))
+		_ = registerEmbeddedAsBase(tmpl)
+	}
+
 	r.SetHTMLTemplate(tmpl)
 
 	// Main monitoring page
@@ -111,6 +160,7 @@ func (ws *WebServer) Start() error {
 
 // handleIndex serves the main monitoring page
 func (ws *WebServer) handleIndex(c *gin.Context) {
+	// Render using the base template name so it works with both disk and embedded templates.
 	c.HTML(http.StatusOK, "index.html", gin.H{
 		"title": "CAKE Auto RTT Monitor",
 	})
