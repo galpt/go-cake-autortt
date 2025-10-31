@@ -114,23 +114,60 @@ func (ws *WebServer) Start() error {
 		return nil
 	}
 
-	// Prefer disk templates if they exist
-	if _, err := os.Stat("web/templates/index.html"); err == nil {
-		// Parse on-disk templates (registers by base names)
-		t, err := template.ParseGlob("web/templates/*")
-		if err != nil {
-			// Fall back to embedded only
-			tmpl = template.Must(template.New("").ParseFS(templateFS, "web/templates/*"))
-		} else {
-			tmpl = t
-		}
-		// Ensure embedded templates fill any missing names
-		_ = registerEmbeddedAsBase(tmpl)
-	} else {
-		// No disk templates found; use embedded templates and register base names
-		tmpl = template.Must(template.New("").ParseFS(templateFS, "web/templates/*"))
-		_ = registerEmbeddedAsBase(tmpl)
+	// Prefer disk templates if they exist. Check both the relative path (for
+	// manual runs) and an absolute install path used by the installer
+	// (/usr/share/cake-autortt/web/templates) so the service works regardless
+	// of working directory.
+	var tmplFound bool
+	diskCandidates := []string{
+		"web/templates/index.html",
+		"/usr/share/cake-autortt/web/templates/index.html",
+		"/etc/cake-autortt/web/templates/index.html", // OpenWrt-friendly location
 	}
+	// Diagnostic: log which candidate paths exist (helps debugging on devices)
+	var candStatus []string
+	for _, cand := range diskCandidates {
+		if _, err := os.Stat(cand); err == nil {
+			candStatus = append(candStatus, fmt.Sprintf("%s=exists", cand))
+		} else {
+			candStatus = append(candStatus, fmt.Sprintf("%s=missing", cand))
+		}
+	}
+	logMessage("DEBUG", fmt.Sprintf("Template candidates: %s", strings.Join(candStatus, ", ")))
+
+	for _, cand := range diskCandidates {
+		if _, err := os.Stat(cand); err == nil {
+			// Determine base dir (e.g. web/templates)
+			base := filepath.Dir(cand)
+			pattern := filepath.ToSlash(filepath.Join(base, "*"))
+			t, err := template.ParseGlob(pattern)
+			if err != nil {
+				// Parsing failed for this candidate, try next
+				continue
+			}
+			tmpl = t
+			tmplFound = true
+			// Log which on-disk template path we're using (helps diagnosis)
+			logMessage("INFO", fmt.Sprintf("Using on-disk templates at %s", base))
+			break
+		}
+	}
+
+	if !tmplFound {
+		// No usable on-disk templates found; use embedded templates
+		// Try parse embedded but avoid panic: handle parse error gracefully
+		if t, err := template.New("").ParseFS(templateFS, "web/templates/*"); err == nil {
+			tmpl = t
+			logMessage("INFO", "Using embedded templates from binary")
+		} else {
+			// Fallback: create a minimal template to avoid crashing the server
+			tmpl = template.Must(template.New("index.html").Parse("<html><body><h1>CAKE Auto RTT</h1><p>UI not available</p></body></html>"))
+			logMessage("WARN", "Embedded templates missing or invalid; using minimal fallback template")
+		}
+	}
+
+	// Ensure embedded templates fill any missing names
+	_ = registerEmbeddedAsBase(tmpl)
 
 	r.SetHTMLTemplate(tmpl)
 
