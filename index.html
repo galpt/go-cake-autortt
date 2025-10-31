@@ -111,12 +111,12 @@
             border-radius: 0.75rem;
             padding: 1.5rem;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            transition: box-shadow 0.25s ease, border-color 0.25s ease;
+            transition: all 0.3s ease;
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .card:hover {
-            /* Keep subtle blue border + stronger shadow, without moving the card */
+            transform: translateY(-3px);
             box-shadow: 0 8px 15px rgba(0, 0, 0, 0.15);
             border-color: var(--accent-primary);
         }
@@ -169,48 +169,6 @@
 
         .qdisc-stats {
             grid-column: 1 / -1;
-        }
-
-        /* Probes list should match Recent Logs layout: full-width and scrollable */
-        .probes-container {
-            grid-column: 1 / -1;
-            max-height: 360px;
-            overflow-y: auto;
-        }
-
-        /* Compact probe metadata row */
-        .probe-meta {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            margin-top: 0.5rem;
-            color: var(--text-secondary);
-            font-size: 0.85rem;
-        }
-
-        .probe-spinner {
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            border: 2px solid rgba(255, 255, 255, 0.08);
-            border-top-color: var(--accent-primary);
-            animation: spin 0.8s linear infinite;
-            background: transparent;
-            display: inline-block;
-        }
-
-        .probe-pill {
-            padding: 0.25rem 0.5rem;
-            border-radius: 0.5rem;
-            background: rgba(255, 255, 255, 0.03);
-            color: var(--text-primary);
-            font-weight: 600;
-            font-size: 0.85rem;
-        }
-
-        .probe-error {
-            color: var(--error);
-            font-weight: 600;
         }
 
         .qdisc-item {
@@ -578,26 +536,19 @@
                 <h3><span class="card-icon">⚙️</span>Configuration</h3>
                 <div class="metric">
                     <span class="metric-label">Update Interval</span>
-                    <span class="metric-value" id="cfgUpdateInterval">-</span>
+                    <span class="metric-value">5s</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">Min Hosts</span>
-                    <span class="metric-value" id="cfgMinHosts">-</span>
+                    <span class="metric-value">3</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">Max Hosts</span>
-                    <span class="metric-value" id="cfgMaxHosts">-</span>
+                    <span class="metric-value">100</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">RTT Margin</span>
-                    <span class="metric-value" id="cfgRTTMargin">-</span>
-                </div>
-            </div>
-
-            <div class="card probes-container">
-                <h3><span class="card-icon">🔎</span>Current Probes</h3>
-                <div id="probesContainer">
-                    <div class="qdisc-item">No active probes</div>
+                    <span class="metric-value">10%</span>
                 </div>
             </div>
 
@@ -704,30 +655,6 @@
             // Update qdisc statistics
             updateQdiscStats(data.qdisc_stats || []);
 
-            // Update configuration values if present
-            if (data.config) {
-                document.getElementById('cfgUpdateInterval').textContent = (data.config.rtt_update_interval || '-') + 's';
-                document.getElementById('cfgMinHosts').textContent = data.config.min_hosts || '-';
-                document.getElementById('cfgMaxHosts').textContent = data.config.max_hosts || '-';
-                document.getElementById('cfgRTTMargin').textContent = (data.config.rtt_margin_percent || '-') + '%';
-            }
-
-            // Update current probes if provided separately
-            if (data.probes) {
-                updateProbes(data.probes);
-            } else {
-                // Fallback: try fetching /api/probes
-                fetch('/api/probes')
-                    .then(r => r.json())
-                    .then(p => updateProbes(p))
-                    .catch(() => { });
-            }
-
-            // Update recent completed probes if provided
-            if (data.completed_probes) {
-                updateCompletedProbes(data.completed_probes);
-            }
-
             // Update logs
             if (data.recent_logs) {
                 updateLogs(data.recent_logs);
@@ -755,62 +682,6 @@
                     <div class="qdisc-details">${stat.qdisc || 'N/A'}\n${stat.stats || 'No statistics available'}</div>
                     ${parsedStats ? `<div class="qdisc-stats-grid">${parsedStats}</div>` : ''}
                 `;
-                container.appendChild(item);
-            });
-        }
-
-        function updateProbes(probes) {
-            const container = document.getElementById('probesContainer');
-            if (!probes || probes.length === 0) {
-                container.innerHTML = '<div class="qdisc-item">No active probes</div>';
-                return;
-            }
-            container.innerHTML = '';
-            probes.forEach(p => {
-                const item = document.createElement('div');
-                item.className = 'qdisc-item';
-
-                const hostLine = `<div class="qdisc-interface">${p.host} - ${p.stage}${p.rtt_ms ? ` (${p.rtt_ms}ms)` : ''}</div>`;
-
-                // Build a compact meta row instead of a large dark details box
-                let meta = `<div class="probe-meta">`;
-                if (p.stage === 'probing') {
-                    meta += `<span class="probe-spinner" aria-hidden="true"></span><span class="probe-pill">probing</span>`;
-                } else if (p.stage === 'done') {
-                    meta += `<span class="probe-pill">${p.rtt_ms ? p.rtt_ms + 'ms' : 'done'}</span>`;
-                } else {
-                    meta += `<span class="probe-pill">${p.stage}</span>`;
-                }
-                if (p.error) {
-                    meta += `<span class="probe-error">Error: ${p.error}</span>`;
-                }
-                meta += `</div>`;
-
-                item.innerHTML = hostLine + meta;
-                container.appendChild(item);
-            });
-        }
-
-        function updateCompletedProbes(completed) {
-            const container = document.getElementById('probesContainer');
-            // Append completed probes after active probes, but keep visual separation
-            if (!completed || completed.length === 0) return;
-            const header = document.createElement('div');
-            header.className = 'qdisc-item';
-            header.innerHTML = `<div class="qdisc-interface">Recent Completed Probes</div>`;
-            container.appendChild(header);
-
-            completed.forEach(p => {
-                const item = document.createElement('div');
-                item.className = 'qdisc-item';
-
-                const hostLine = `<div class="qdisc-interface">${p.host} - ${p.stage}${p.rtt_ms ? ` (${p.rtt_ms}ms)` : ''}</div>`;
-                let meta = `<div class="probe-meta">`;
-                meta += `<span class="probe-pill">${p.rtt_ms ? p.rtt_ms + 'ms' : p.stage}</span>`;
-                if (p.error) meta += `<span class="probe-error">Error: ${p.error}</span>`;
-                meta += `</div>`;
-
-                item.innerHTML = hostLine + meta;
                 container.appendChild(item);
             });
         }

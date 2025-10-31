@@ -1,7 +1,7 @@
 package main
 
 import (
-	"embed"
+	_ "embed"
 	"fmt"
 	"html/template"
 	"log"
@@ -18,8 +18,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-//go:embed web/templates/*
-var templateFS embed.FS
+// Embed the single index.html file located next to main.go as a string
+//
+//go:embed index.html
+var homePage string
+
+// No runtime reference to the embed package is necessary when we embed into
+// a string, so import it for the compiler/tooling as a blank import above.
 
 // WebServer handles the HTTP server for monitoring
 type WebServer struct {
@@ -81,9 +86,9 @@ func (ws *WebServer) Start() error {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	// Load embedded templates
-	tmpl := template.Must(template.New("").ParseFS(templateFS, "web/templates/*"))
-
+	// Parse the embedded HTML string into a *template.Template which Gin
+	// expects via SetHTMLTemplate.
+	tmpl := template.Must(template.New("index.html").Parse(homePage))
 	r.SetHTMLTemplate(tmpl)
 
 	// Main monitoring page

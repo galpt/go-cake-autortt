@@ -45,48 +45,6 @@ check_root() {
     fi
 }
 
-    # Install on-disk web templates so system service (with different working dir)
-    # can prefer local templates. Copies templates from the script directory to
-    # /usr/share/cake-autortt/web/templates when available.
-    install_templates() {
-        log_info "Installing web templates (if present)"
-
-        # Resolve script directory (where install.sh lives)
-        SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-        # On OpenWrt prefer /etc for persistent writable config/data; on full Linux
-        # distros prefer /usr/share. Detect OpenWrt by presence of /etc/openwrt_release
-        if [ -f /etc/openwrt_release ]; then
-            TARGET_BASE="/etc/cake-autortt/web"
-        else
-            TARGET_BASE="/usr/share/cake-autortt/web"
-        fi
-
-        # Look for web/templates in multiple likely locations so the installer works
-        # whether invoked as ./install.sh or as /install.sh (which makes $0's dir '/').
-        FOUND=""
-        for c in \
-            "$SCRIPT_DIR/web/templates" \
-            "$PWD/web/templates" \
-            "$SCRIPT_DIR/../web/templates" \
-            "$(cd "$SCRIPT_DIR" && cd .. >/dev/null 2>&1 && pwd)/web/templates"; do
-            if [ -d "$c" ]; then
-                FOUND="$c"
-                break
-            fi
-        done
-
-        if [ -n "$FOUND" ]; then
-            log_info "Found local web/templates in $FOUND, copying to $TARGET_BASE"
-            mkdir -p "$TARGET_BASE"
-            cp -r "$FOUND" "$TARGET_BASE"
-            chmod -R 755 "$TARGET_BASE"
-            log_success "Web templates installed to $TARGET_BASE/templates (source: $FOUND)"
-        else
-            log_info "No local web/templates found in candidates, skipping template installation"
-        fi
-    }
-
 # Detect system architecture
 detect_arch() {
     local arch=$(uname -m)
@@ -338,9 +296,6 @@ Wants=network.target
 
 [Service]
 Type=simple
-# Ensure the service has a predictable working directory so on-disk templates
-# (installed to /usr/share/cake-autortt/web/templates) are found by the server.
-WorkingDirectory=/usr/share/cake-autortt
 ExecStart=/usr/bin/$BINARY_NAME --config $CONFIG_FILE
 Restart=always
 RestartSec=5
@@ -452,7 +407,6 @@ main() {
     check_dependencies
     download_binary
     create_config
-    install_templates
     
     # Install appropriate service
     local os_type=$(detect_os)
