@@ -171,11 +171,9 @@
             grid-column: 1 / -1;
         }
 
-        /* Probes list should match Recent Logs layout: full-width and scrollable */
+        /* Probes list should match Recent Logs layout: full-width. Content is scrollable in .probes-body */
         .probes-container {
             grid-column: 1 / -1;
-            max-height: 360px;
-            overflow-y: auto;
         }
 
         /* Compact probe metadata row */
@@ -290,6 +288,19 @@
 
         .logs-container {
             grid-column: 1 / -1;
+        }
+
+        /* Inner scrollable bodies keep the section title visible while content scrolls */
+        .card-body {
+            padding-top: 0.5rem;
+        }
+
+        .probes-body {
+            max-height: 360px;
+            overflow-y: auto;
+        }
+
+        .logs-body {
             max-height: 400px;
             overflow-y: auto;
         }
@@ -596,8 +607,10 @@
 
             <div class="card probes-container">
                 <h3><span class="card-icon">🔎</span>Current Probes</h3>
-                <div id="probesContainer">
-                    <div class="qdisc-item">No active probes</div>
+                <div class="card-body probes-body">
+                    <div id="probesContainer">
+                        <div class="qdisc-item">No active probes</div>
+                    </div>
                 </div>
             </div>
 
@@ -612,11 +625,13 @@
 
             <div class="card logs-container">
                 <h3><span class="card-icon">📝</span>Recent Logs</h3>
-                <div id="logsContainer">
-                    <div class="log-entry">
-                        <span class="log-timestamp">--:--:--</span>
-                        <span class="log-level INFO">INFO</span>
-                        <span class="log-message">Loading logs...</span>
+                <div class="card-body logs-body">
+                    <div id="logsContainer">
+                        <div class="log-entry">
+                            <span class="log-timestamp">--:--:--</span>
+                            <span class="log-level INFO">INFO</span>
+                            <span class="log-message">Loading logs...</span>
+                        </div>
                     </div>
                 </div>
             </div>

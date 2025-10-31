@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -11,7 +12,10 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/VictoriaMetrics/fastcache"
 )
 
 // CakeAutoRTTService represents the main service
@@ -24,11 +28,16 @@ type CakeAutoRTTService struct {
 	lastUpdate  time.Time
 	ctx         context.Context
 	cancel      context.CancelFunc
-	recentLogs  []LogEntry
 	logMutex    sync.RWMutex
 	// probe tracking
 	probeMutex    sync.RWMutex
 	currentProbes map[string]ProbeStatus
+	// max snapshot entries to return for current probes (helps bound memory/use)
+	currentProbesMaxEntries int
+	// fastcache-backed storage for current probes (values marshaled JSON)
+	currentProbeCache *fastcache.Cache
+	// bounded queue of current probe keys (hosts) to allow iteration of recent/current probes
+	currentProbeQueue []string
 	// injectable probe function for testing (host, timeoutSec) -> (rtt, error)
 	ProbeFunc func(host string, timeoutSec int) (time.Duration, error)
 	// adaptive worker cap managed by background controller
@@ -43,6 +52,14 @@ type CakeAutoRTTService struct {
 	cpuReader func() (uint64, uint64, error)
 	// cpu sampling interval used by adaptive controller (injectable for tests)
 	cpuSampleInterval time.Duration
+	// fastcache-backed storage for recent logs
+	recentLogCache *fastcache.Cache
+	// bounded queue of recent log sequence IDs
+	recentLogQueue []uint64
+	// max recent logs to keep in queue (also used historically to maintain compatibility)
+	recentLogsMaxEntries int
+	// atomic sequence for log keys
+	recentLogSeq uint64
 }
 
 // LogEntry represents a log entry
@@ -88,14 +105,20 @@ type CompletedProbe struct {
 func NewCakeAutoRTTService(config *Config) (*CakeAutoRTTService, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	service := &CakeAutoRTTService{
-		config:        config,
-		running:       false,
-		lastRTT:       make(map[string]int),
-		lastUpdate:    time.Now().Local(),
-		ctx:           ctx,
-		cancel:        cancel,
-		recentLogs:    make([]LogEntry, 0, 100),
-		currentProbes: make(map[string]ProbeStatus),
+		config:     config,
+		running:    false,
+		lastRTT:    make(map[string]int),
+		lastUpdate: time.Now().Local(),
+		ctx:        ctx,
+		cancel:     cancel,
+		// recent logs are stored in fastcache+queue
+		recentLogsMaxEntries:    100,
+		recentLogQueue:          make([]uint64, 0, 100),
+		recentLogCache:          fastcache.New(32 << 20),
+		currentProbes:           make(map[string]ProbeStatus),
+		currentProbesMaxEntries: 100, // limit snapshot size by default
+		currentProbeCache:       fastcache.New(32 << 20),
+		currentProbeQueue:       make([]string, 0, 100),
 	}
 
 	// default probe function uses the internal TCP probe implementation
@@ -451,18 +474,55 @@ func (s *CakeAutoRTTService) measureRTTTCP(hosts []string) (float64, int, error)
 func (s *CakeAutoRTTService) setProbeStage(host, stage string) {
 	s.probeMutex.Lock()
 	defer s.probeMutex.Unlock()
-	ps := s.currentProbes[host]
-	ps.Host = host
-	ps.Stage = stage
-	ps.Error = ""
-	ps.RTTMs = 0
+
+	// If the host is already being tracked, update its stage and cache.
+	if ps, ok := s.currentProbes[host]; ok {
+		ps.Host = host
+		ps.Stage = stage
+		ps.Error = ""
+		ps.RTTMs = 0
+		s.currentProbes[host] = ps
+		if s.currentProbeCache != nil {
+			if b, err := json.Marshal(ps); err == nil {
+				s.currentProbeCache.Set([]byte(host), b)
+			}
+		}
+		return
+	}
+
+	// If we're at capacity, evict the oldest tracked probe to make room (FIFO).
+	if s.currentProbesMaxEntries > 0 && len(s.currentProbes) >= s.currentProbesMaxEntries {
+		if len(s.currentProbeQueue) > 0 {
+			evict := s.currentProbeQueue[0]
+			s.currentProbeQueue = s.currentProbeQueue[1:]
+			delete(s.currentProbes, evict)
+			if s.currentProbeCache != nil {
+				s.currentProbeCache.Del([]byte(evict))
+			}
+		}
+	}
+
+	// Create a new probe entry and add to queue/map/cache.
+	ps := ProbeStatus{
+		Host:  host,
+		Stage: stage,
+		Error: "",
+		RTTMs: 0,
+	}
 	s.currentProbes[host] = ps
+	s.currentProbeQueue = append(s.currentProbeQueue, host)
+	if s.currentProbeCache != nil {
+		if b, err := json.Marshal(ps); err == nil {
+			s.currentProbeCache.Set([]byte(host), b)
+		}
+	}
 }
 
 // setProbeResult records the final probe result
 func (s *CakeAutoRTTService) setProbeResult(host string, rttMs int, err error) {
 	s.probeMutex.Lock()
 	defer s.probeMutex.Unlock()
+
 	ps := s.currentProbes[host]
 	ps.Host = host
 	if err != nil {
@@ -476,8 +536,6 @@ func (s *CakeAutoRTTService) setProbeResult(host string, rttMs int, err error) {
 	}
 
 	// Record result transiently then remove from currentProbes to avoid unbounded map growth.
-	// The currentProbes map represents active/in-flight probes for the UI; once a probe is
-	// completed (done or failed) we remove it so the map doesn't grow indefinitely.
 	if ps.Stage == "done" || ps.Stage == "failed" {
 		// append timestamped completed probe to buffer
 		s.completedProbes = append(s.completedProbes, CompletedProbe{Probe: ps, When: time.Now()})
@@ -485,9 +543,29 @@ func (s *CakeAutoRTTService) setProbeResult(host string, rttMs int, err error) {
 		if len(s.completedProbes) > s.completedMaxEntries {
 			s.completedProbes = s.completedProbes[len(s.completedProbes)-s.completedMaxEntries:]
 		}
+
+		// remove from map
 		delete(s.currentProbes, host)
+
+		// remove from queue (linear search - queue is small)
+		for i, h := range s.currentProbeQueue {
+			if h == host {
+				s.currentProbeQueue = append(s.currentProbeQueue[:i], s.currentProbeQueue[i+1:]...)
+				break
+			}
+		}
+
+		// delete from cache
+		if s.currentProbeCache != nil {
+			s.currentProbeCache.Del([]byte(host))
+		}
 	} else {
 		s.currentProbes[host] = ps
+		if s.currentProbeCache != nil {
+			if b, err := json.Marshal(ps); err == nil {
+				s.currentProbeCache.Set([]byte(host), b)
+			}
+		}
 	}
 }
 
@@ -499,6 +577,20 @@ func (s *CakeAutoRTTService) GetCurrentProbes() []ProbeStatus {
 	for _, v := range s.currentProbes {
 		out = append(out, v)
 	}
+
+	// If configured, limit the number of entries returned to avoid large payloads
+	max := s.currentProbesMaxEntries
+	if max <= 0 {
+		// defensive: if misconfigured, fallback to returning everything
+		return out
+	}
+
+	// Deterministic trimming: sort by host then trim to the last `max` entries.
+	if len(out) > max {
+		sort.Slice(out, func(i, j int) bool { return out[i].Host < out[j].Host })
+		out = out[len(out)-max:]
+	}
+
 	return out
 }
 
@@ -630,6 +722,15 @@ func (s *CakeAutoRTTService) Stop() {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	s.running = false
+
+	// Reset caches to release memory
+	if s.recentLogCache != nil {
+		s.recentLogCache.Reset()
+	}
+	if s.currentProbeCache != nil {
+		s.currentProbeCache.Reset()
+	}
+
 	s.cancel()
 }
 
@@ -644,23 +745,53 @@ func (s *CakeAutoRTTService) AddLog(level, message string) {
 		Message:   message,
 	}
 
-	s.recentLogs = append(s.recentLogs, entry)
+	// Marshal and store in fastcache with an atomic sequence key.
+	if s.recentLogCache != nil {
+		if b, err := json.Marshal(entry); err == nil {
+			seq := atomic.AddUint64(&s.recentLogSeq, 1)
+			key := fmt.Sprintf("log:%d", seq)
+			s.recentLogCache.Set([]byte(key), b)
 
-	// Keep only the last 100 log entries
-	if len(s.recentLogs) > 100 {
-		s.recentLogs = s.recentLogs[1:]
+			// Maintain bounded queue of recent log seq IDs
+			if s.recentLogsMaxEntries <= 0 {
+				s.recentLogsMaxEntries = 100
+			}
+			if len(s.recentLogQueue) >= s.recentLogsMaxEntries {
+				ev := s.recentLogQueue[0]
+				s.recentLogQueue = s.recentLogQueue[1:]
+				// delete older entry from cache (best-effort)
+				s.recentLogCache.Del([]byte(fmt.Sprintf("log:%d", ev)))
+			}
+			s.recentLogQueue = append(s.recentLogQueue, seq)
+		}
 	}
 }
 
 // GetRecentLogs returns the recent log entries
 func (s *CakeAutoRTTService) GetRecentLogs() []LogEntry {
 	s.logMutex.RLock()
-	defer s.logMutex.RUnlock()
+	queue := make([]uint64, len(s.recentLogQueue))
+	copy(queue, s.recentLogQueue)
+	s.logMutex.RUnlock()
 
-	// Return a copy of the logs
-	logs := make([]LogEntry, len(s.recentLogs))
-	copy(logs, s.recentLogs)
-	return logs
+	out := make([]LogEntry, 0, len(queue))
+	if s.recentLogCache == nil {
+		return out
+	}
+
+	for _, seq := range queue {
+		key := fmt.Sprintf("log:%d", seq)
+		v := s.recentLogCache.Get(nil, []byte(key))
+		if len(v) == 0 {
+			continue
+		}
+		var le LogEntry
+		if err := json.Unmarshal(v, &le); err != nil {
+			continue
+		}
+		out = append(out, le)
+	}
+	return out
 }
 
 // GetSystemStatus returns the current system status
