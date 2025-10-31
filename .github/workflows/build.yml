@@ -125,7 +125,11 @@ jobs:
         go-version: '1.21'
 
     - name: Get dependencies
+      # Ensure we run inside the module directory to make sure //go:embed paths
+      # resolve against the correct package tree (avoid cwd mismatch when the
+      # workflow file lives in a subdirectory).
       run: go mod download
+      working-directory: ./
 
     - name: Build binary
       env:
@@ -133,9 +137,26 @@ jobs:
         GOARCH: ${{ matrix.goarch }}
         GOARM: ${{ matrix.goarm }}
         CGO_ENABLED: 0
+      # Explicitly build from the module directory to guarantee embed files are
+      # resolved correctly and to avoid surprises if the runner cwd changes.
       run: |
         mkdir -p dist
+        cd ./
         go build -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o dist/cake-autortt-${{ matrix.name }}${{ matrix.ext }} .
+      working-directory: ./
+
+    - name: Verify embedded templates (Linux/macOS)
+      if: matrix.goos != 'windows'
+      run: |
+        BIN=dist/cake-autortt-${{ matrix.name }}
+        # Check the binary contains a known string from the HTML template to
+        # detect accidental missing embeds (fail the build if not present).
+        if ! strings "$BIN" | grep -q "CAKE Auto RTT Monitor"; then
+          echo "ERROR: Embedded templates not found in $BIN" >&2
+          strings "$BIN" | head -n 200 >&2 || true
+          exit 1
+        fi
+      working-directory: ./
 
     - name: Create archive
       run: |
