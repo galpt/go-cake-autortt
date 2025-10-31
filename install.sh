@@ -62,14 +62,28 @@ check_root() {
             TARGET_BASE="/usr/share/cake-autortt/web"
         fi
 
-        if [ -d "$SCRIPT_DIR/web/templates" ]; then
-            log_info "Found local web/templates in $SCRIPT_DIR, copying to $TARGET_BASE"
+        # Look for web/templates in multiple likely locations so the installer works
+        # whether invoked as ./install.sh or as /install.sh (which makes $0's dir '/').
+        FOUND=""
+        for c in \
+            "$SCRIPT_DIR/web/templates" \
+            "$PWD/web/templates" \
+            "$SCRIPT_DIR/../web/templates" \
+            "$(cd "$SCRIPT_DIR" && cd .. >/dev/null 2>&1 && pwd)/web/templates"; do
+            if [ -d "$c" ]; then
+                FOUND="$c"
+                break
+            fi
+        done
+
+        if [ -n "$FOUND" ]; then
+            log_info "Found local web/templates in $FOUND, copying to $TARGET_BASE"
             mkdir -p "$TARGET_BASE"
-            cp -r "$SCRIPT_DIR/web/templates" "$TARGET_BASE"
+            cp -r "$FOUND" "$TARGET_BASE"
             chmod -R 755 "$TARGET_BASE"
-            log_success "Web templates installed to $TARGET_BASE/templates"
+            log_success "Web templates installed to $TARGET_BASE/templates (source: $FOUND)"
         else
-            log_info "No local web/templates found in $SCRIPT_DIR, skipping template installation"
+            log_info "No local web/templates found in candidates, skipping template installation"
         fi
     }
 
